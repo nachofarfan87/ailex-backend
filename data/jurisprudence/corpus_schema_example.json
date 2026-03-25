@@ -1,0 +1,39 @@
+{
+  "_meta": {
+    "dataset_kind": "seed",
+    "dataset_label": "Schema Example",
+    "status": "example_only",
+    "description": "Ejemplo de esquema para documentacion. No debe cargarse como corpus productivo."
+  },
+  "cases": [
+    {
+      "case_id": "schema-example-only",
+      "court": "Tribunal de ejemplo",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "year": 2025,
+      "case_name": "Ejemplo de esquema - no usar",
+      "source": "schema_example",
+      "source_url": "",
+      "legal_issue": "Campo de ejemplo",
+      "facts_summary": "Campo de ejemplo",
+      "decision_summary": "Campo de ejemplo",
+      "key_reasoning": "Campo de ejemplo",
+      "holding": "Campo de ejemplo",
+      "outcome": "Campo de ejemplo",
+      "topics": [
+        "divorcio"
+      ],
+      "keywords": [
+        "ejemplo"
+      ],
+      "applied_articles": [
+        "CCyC 437"
+      ],
+      "procedural_stage": "apelacion",
+      "document_type": "sentencia",
+      "action_slug": "divorcio",
+      "dataset_kind": "seed"
+    }
+  ]
+}

@@ -1,0 +1,331 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "dataset_label": "Jujuy - Sucesiones",
+    "editorial_line": "jujuy_local",
+    "status": "curated",
+    "description": "Slot curado para jurisprudencia real de Jujuy en sucesiones.",
+    "local_defaults": {
+      "territorial_priority": "alta",
+      "court_level": "provincial",
+      "local_topic_cluster": "sucesiones_jujuy"
+    }
+  },
+  "cases": [
+    {
+      "case_id": "jujuy-sucesiones-sucesion_-_armella",
+      "court": "JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8",
+      "jurisdiction": "jujuy",
+      "forum": "civil",
+      "year": 2007,
+      "case_name": "",
+      "source": "file_system",
+      "source_url": "",
+      "legal_issue": "sucesion ab intestato - con cita de arts. 2337, 2426, 439, 9 - PODER JUDICIAL DE LA PROVINCIA DE JUJUY JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8 Independencia No 987 - San Salvador de Jujuy SAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.- ENCABEZAMIENTO: El presente Expte.",
+      "facts_summary": "",
+      "decision_summary": "",
+      "key_reasoning": "I.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el bien que componen el acervo hereditario.- II.- En segundo orden, en lo que respecta a los honorarios profesionales devengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente del monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en los regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de discrecionalidad (CS., del 31/05/99 “Roca J.C. c Consultora S.A.",
+      "holding": "I.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el bien que componen el acervo hereditario.- II.- En segundo orden, en lo que respecta a los honorarios profesionales devengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente del monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en los regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de discrecionalidad (CS., del 31/05/99 “Roca J.C.",
+      "outcome": "",
+      "topics": [
+        "sucesion ab intestato",
+        "declaratoria de herederos"
+      ],
+      "keywords": [
+        "sucesion ab intestato",
+        "art 2337",
+        "art 2426",
+        "art 439",
+        "art 9",
+        "sucesion"
+      ],
+      "applied_articles": [
+        "2337",
+        "2426",
+        "439",
+        "9",
+        "67",
+        "23",
+        "37",
+        "15",
+        "25",
+        "2424",
+        "22"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia",
+      "action_slug": "sucesion_ab_intestato",
+      "strategic_value": "",
+      "date": "2007-12-10",
+      "full_text": "PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.-\nENCABEZAMIENTO:\nEl presente Expte. N° B-121071/04, caratulado “SUCESORIO AB-\nINTESTATO de CRUZ ARMELLA”;\nANTECEDENTES:\nA hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y\nrepresentación de los SRES. MARIA ANGELICA ARMELLA, ALBERTO CARLOS\nARMELLA, MIGUEL ANGEL ARMELLA, MANUEL ROMUALDO ARMELLA,\nHUMBERTO RAFAEL ARMELLA, CARMEN ROSA ARMELLA, ISABEL CRISTINA\nARMELLA, OSVALDO CESAR ARMELLA y ANTONIA RITA ARMELLA, solicitando\nla apertura de la Sucesión del SR. CRUZ ARMELLA, viudo, DNI N° 93.133.884 fallecido\nen fecha 25 de Noviembre del año 2.002 en San Salvador de Jujuy, Dpto. Dr. Manuel\nBelgrano de la Provincia de Jujuy, República Argentina.-\nA hojas 35 se decreta la apertura de la Sucesión del SR. CRUZ ARMELLA,\nDNI N° 93.133.884, y se ordena publicar edictos y librar los oficios pertinentes.\nA hojas 72/72 vlta se dicta declaratoria de herederos, resolviendo que por el\nfallecimiento del SR. CRUZ ARMELLA, viudo, DNI N° 93.133.884, le suceden en carácter\nde herederos sus hijos SRES. ANTONIA RITA ARMELLA, CARMEN ROSA ARMELLA,\nALBERTO CARLOS ARMELLA, MIGUEL ANGEL ARMELLA, HUMBERTO RAFAEL\nARMELLA, MANUEL ROMUALDO ARMELLA, ISABEL CRISTINA ARMELLA,\nOSVALDO CESAR ARMELLA y MARIA ANGELICA ARMELLA, a quienes se les\nreconoce la posesión de la herencia en los términos del Art. 2337, 2426 y cctes del Código\nCivil y Comercial de la Nación.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nA hojas 78 se lleva a cabo la audiencia prevista por el art. 439, designándose al DR.\nJULIO ALBERTO FARFAN como perito inventariador, avaluador y partidor, quien se\nrecibe del cargo a hojas 78 vlta.-\nA hojas 81 se presenta inventario y avalúo del único bien Inmueble Matricula P-\n3140-21649 que compone el acervo hereditario de la Sucesión, el que fue aprobado a hojas\n83.-\nA hojas 83/85 se acredita con los comprobantes respectivos el pago de la tasa de\njusticia final.-\nA hojas 133 se tiene presente la cesión de acciones y derechos hereditarios\nEscritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 efectuada por los\nHEREDEROS ISABEL CRISTINA ARMELLA, MANUEL ROMUALDO ARMELLA,\nHUMBERTO RAFAEL ARMELLA, MIGUEL ÁNGEL ARMELLA, ANTONIA RITA\nARMELLA, MARÍA ANGÉLICA ARMELLA, ALBERTO CARLOS ARMELLA a favor\nde OSVALDO CESAR ARMELLA Y GLADIS ESTER BURGOS, sobre el inmueble\nindividualizado como: Lote 37 manzana 18-B1 Nomenclatura Catastral: Circunscripción 1\nSección 1 Manzana 20 Parcela 20 Padrón P-21649, pasada ante Escribana autorizante De\nBedia Ana Maria, titular del Registro Notarial N° 17.-\nA hojas 137 se presenta al SR. OSVALDO CESAR ARMELLA DNI N°\n13.729.448 con el patrocinio letrado de la DRA. MARIA GUADALUPE VASQUEZ.-\nA hojas 143/144 se presenta cesión de acciones y derechos hereditarios\nEscritura N° 18 de fecha 16/05/2022 efectuada por la SRA. CARMEN ROSA ARMELLA a\nfavor de OSVALDO CESAR ARMELLA Y GLADIS ESTER BURGOS, sobre el inmueble\nindividualizado como: Lote 37 manzana 18-B1 Nomenclatura Catastral: Circunscripción 1\nSección 1 Manzana 20 Parcela 20 Padrón P-21649, mediante pasada ante Escribana\nautorizante De Bedia Ana Maria, titular del Registro Notarial N° 17, la cual se tiene presente\npara su oportunidad. -\nMediante escrito digital no 720288 de fecha 30 de mayo del año 2023 se\npresenta PARTICIÓN conforme: Escritura No 192 Cesión de Acciones y Derechos\nHereditarios de fecha 10/12/2007 obrante a hojas 115/117 efectuada por los herederos Isabel\nCristina Armella, Manuel Romualdo Armella, Humberto Rafael Armella, Miguel Ángel\nArmella, Antonia Rita Armella, María Angélica Armella, Alberto Carlos Armella a favor de\nOsvaldo Cesar Armella y Gladis Ester Burgos y Escritura No 18 Cesión de Acciones y\nDerechos Hereditarios de fecha 16/05/2022 obrante a hojas 143/144 efectuada por la heredera\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nCarmen Rosa Armella a favor de Osvaldo Cesar Armella y Gladis Ester Burgos.-\nEn fecha 03/11/2023 la Dirección Provincial de Inmueble respuesta de oficio ,\nponiendo en conocimiento a este Juzgado que la Escritura N°74 Fha. 15/111/2001-\nEsc.Tlar.Reg. del N 2 c/Cert.Pres.N°3258 Fha. 29/11/2001, fue inscripta en forma provisoria\npor el plazo de 180 dias en cumplimiento del Articulo 9° de la Ley N° 17.801 y\nReglamentaria Local, el cual a la fecha se encuentra caduco.(rubro 7 asiento 3).\nEn fecha 25 de marzo del cte. Año se aprueba la Partición y adjudicación del\nbien que compone el acervo hereditario practicado en escrito digital No 720288.-\nFUNDAMENTOS:\nI.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada\nconforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha\n10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas\n143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el\nbien que componen el acervo hereditario.-\nII.- En segundo orden, en lo que respecta a los honorarios profesionales\ndevengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente\ndel monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en\nlos regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de\ndiscrecionalidad (CS., del 31/05/99 “Roca J.C. c Consultora S.A. S/ ordinario” en Fallos\n322:1100).- En consonancia, la Suprema Corte de Justicia en L.A. N° 48, F° 210/213,\nN° 82, ha sostenido entre otros conceptos que: “no debe olvidarse que el primer elemento a\nponderar a la hora de regular los honorarios profesionales consiste en la labor efectivamente\nrealizada en la causa, su extensión y su eficacia enderezada a esclarecer al sentenciante\nrespecto de la materia litigiosa. Solo después corresponde echar mano a las pautas numéricas\nque proporciona el régimen legal...”.-\nSiguiendo este orden de ideas si bien la nueva ley arancelaria vigente\nen la Provincia de Jujuy No 6368 establece en su art. 67 que las disposiciones de la presente\nLey se aplicarán a todos los procesos en curso, en los que no haya regulación de honorarios,\nal tiempo de su vigencia y no estando previsto en el cuerpo legal referido (Ley N° 6368), un\nmínimo establecido para la regulacion por la primera etapa del juicio sucesorio , como si lo\ntenia dispuesto la ley arancelaria anteriormente vigente (Ley N° 6112, indicando la\naplicacion de 30 UMAS). Excepcionalmente, atento a constancias de autos, a fin de\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\njustipreciar la actuacion profesional de los letrados intervinientes , en concordancia con lo\nestablecido en reiteradas oportunidades por nuestra Excma. Suprema Corte de Justicia en\ncuanto debe retribuirse de manera suficiente la labor de los profesionales en resguardo de la\ndignidad de los mismos, por lo que considero que de no aplicarse un minimo de honorarios se\nestaría vulnerando el derecho de los letrados a obtener una retribución justa por el desempeño\nen los presentes obrados.-\nConforme a lo expuesto, teniendo en cuenta la finalidad de las normas aludidas y\nrealizando una interpretación integral y coherente del ordenamiento normativo vigente (Ley\nNo 6358, arts. 23, 37 cctes) corresponde regular los honorarios profesionales a los DRES.\nJULIO ALBERTO FARFAN en la suma de PESOS DOSCIENTOS NOVENTA Y SEIS\nMIL DOSCIENTOS CINCUENTA ($296.250), y al DR. ANDRES ESTEBAN REYNOSO\nen la suma de PESOS QUINIENTOS CINCUENTA Y SEIS MIL CIENTO OCHENTA\n($550.180) como letrados intervinientes en forma proporcional en su caracter de letrado\napoderado y patrocinante respectivamente(art. 15 ,Ley No 6368) durante la primera y segunda\netapa del proceso haciendo la salvedad que por la primera etapa se regulan 30 UMAS en las\nproporciones indicadas a fin de retribuir de manera suficiente la labor de los profesionales\npor el desempeño en los presentes obrados ,y a la DRA. MARIA GUADALUPE VASQUEZ\nen forma proporcional durante la última etapa (tercera) en la suma de PESOS CUARENTA\nMIL TRESCIENTOS NOVENTA Y UNO ($40.391) obteniendose dichas sumas de calcular\nel 20% del monto de la valuación fiscal actualizada que adjunta en pdf mediante escrito\ndigital No 720288 de fecha 30/05/23, por el valor de $ 403.915, y a su división por etapas,\nello en virtud de que por tratarse de un inmueble y no habiendo sido tasado en autos, se\ntendrá como cuantía del asunto la ultima valuación fiscal presentada, incrementada en un\ncincuenta por ciento (50%), detrayéndose el 20% del monto resultante (art. 25 de la citada\nley)\nEn lo que respecta a la regulación por la labor en el carácter de Perito Avaluador\ne Inventariador, corresponde regular al DR. JULIO ALBERTO FARFAN la suma de PESOS\nOCHO MIL SETENTA Y OCHO ($8.078) la cual surge de extraer el 2% al monto del\ninventario y asimismo a la DRA. MARIA GUADALUPE VASQUEZ, en la suma de\nPESOS DOCE MIL CIENTO DIECISIETE ($12.117) por su labor en el carácter de perito\npartidora, lo cual surge de extraer el 3% del monto del inventario y avalúo practicado en\nautos (art. 37 de la ley 6112). Dichos montos han sido fijados en la fecha del presente por lo\nque sólo en caso de mora devengarán interés conforme a la tasa activa que fija diariamente el\nBanco Central de la República Argentina. “Recurso de inconstitucionalidad interpuesto en el\nexpte No B-145731/05 (sala I- Tribunal del Trabajo)) Indemnización por despido incausado y\notros rubros Zamudio, Silvia Zulema C/ Achi Yolanda y otro (L.A. 54, F° 673/678 N° 235),\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nmás IVA si correspondiere.-\nPor ello, y de conformidad a lo dispuesto por los Arts. 2337, 2424, 2426, y\ncctes. del C.C.C.N, este Juzgado de Primera Instancia en lo Civil y Comercial No 4 resuelve,\nPARTE DISPOSITIVA:\nI.- Sobreseer la presente Sucesión del SR. CRUZ ARMELLA, viudo, DNI N°\n93.133.884, conforme cesiones efectuadas por herederos declarados en autos.-\nII.- Adjudicar al heredero-cesionario SR. OSVALDO CESAR ARMELLA DNI No\n13.729.448, CUIL 20-13729448-7, de nacionalidad argentina, de estado civil: casado en\nprimeras nupcias con Gladis Ester Burgos, domiciliado en Avenida Libertad No 777, del\nBarrio 25 de Mayo de la ciudad de Palpalá, Departamento Palpalá, Provincia de Jujuy, la\nporción de la 5/9 avas parte del INMUEBLE ubicado en la ciudad de Palpalá, jurisdicción del\nDepartamento de Palpalá de esta Provincia, individualizado según plano aprobado por\nResolución No 54/1976 como lote 37, manzana 18 –B1, nomenclatura catastral:\nCircunscripción 1, Sección 1, Manzana 20, Parcela 20, Padrón P-21649, conforme a la\npartición practicada en autos.-\nIII.- Adjudicar a la cesionaria SRA. GLADIS ESTER BURGOS DNI 14.930.430,\nCUIL 23-14930430-4, con domicilio en Avenida Libertad No 777, Barrio 25 de Mayo de la\nciudad de Palpalá, Departamento Palpalá, Provincia de Jujuy, la porción de la 4/9 avas parte\ndel INMUEBLE ubicado en la ciudad de Palpalá, jurisdicción del Departamento de Palpalá\nde esta Provincia, individualizado según plano aprobado por Resolución No 54/1976 como\nlote 37, manzana 18 –B1, nomenclatura catastral: Circunscripción 1, Sección 1, Manzana 20,\nParcela 20, Padrón P-21649, conforme a la partición practicada en autos.-\nIV.- Regular los honorarios profesionales de los letrados intervinientes de\nconformidad a los fundamentos, a los DRES. JULIO ALBERTO FARFAN en la suma de\nPESOS DOSCIENTOS NOVENTA Y SEIS MIL DOSCIENTOS CINCUENTA ($296.250),\ny al DR. ANDRES ESTEBAN REYNOSO en la suma de PESOS QUINIENTOS\nCINCUENTA Y SEIS MIL CIENTO OCHENTA ($550.180) ,y a la DRA. MARIA\nGUADALUPE VASQUEZ en forma proporcional durante la última etapa (tercera) en la\nsuma de PESOS CUARENTA MIL TRESCIENTOS NOVENTA Y UNO ($40.391).\nAsimismo, al DR. JULIO ALBERTO FARFAN como Perito inventariador y avaluador en la\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nsuma de PESOS OCHO MIL SETENTA Y OCHO ($8.078). y a la DRA. MARIA\nGUADALUPE VASQUEZ, por la labor como perito partidora en la suma de PESOS DOCE\nMIL CIENTO DIECISIETE ($12.117). Dichas sumas, han sido fijadas a la fecha del\npresente por lo que sólo en caso de mora devengará interés conforme a la tasa activa de\nconformidad a la Doctrina del Superior Tribunal de Justicia en la causa: “Recurso de\ninconstitucionalidad interpuesto en el Expte. No B-145.731/05 (Sala I- Tribunal del Trabajo)\nIndemnización por despido incausado y otros rubros: Zamudio, Silvia Zulema c/ Achi\nYolanda y otro “, (L. A. 54, Fo 673- 678- No 235) debiendo ser soportados por los\nadjudicatarios en las proporciones correspondiente a cada uno de ellos.-\nV.- Expedir testimonio constitutivo de hijuelas, facultándose a la DRA. MARIA\nGUADALUPE VASQUEZ para el diligenciamiento, suscripción y firma de la rogatoria\ncorrespondiente, a los fines de la inscripción del testimonio de hijuelas ante la Dirección\nGral. de Inmuebles, ello previa acreditación del pago de los aportes previstos en el inc. b) y\ne) del art.22 de la Ley 4764/94.-\nVI.- Proveyendo al escrito digital N° 1287470, estese la letrada a lo aqui dispuesto\nVII.- Notificar, hacer saber y agregar copia en autos\nFirmado por Cabana, Ricardo Sebastian - Juez de Primera Instancia en lo Civil y Comercial\nFirmado por Alfonso, Arturo Daniel - Firma habilitada",
+      "dataset_kind": "real",
+      "metadata": {
+        "parser": "heuristic_jurisprudence_parser_v1",
+        "detected_sections": [
+          "fundamentos"
+        ],
+        "missing_sections": [
+          "autos_y_vistos",
+          "considerando",
+          "resuelve",
+          "resulta"
+        ],
+        "parsed_at": "2026-03-14",
+        "case_name": "SUCESION - ARMELLA",
+        "court": "JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8",
+        "jurisdiction": "jujuy",
+        "forum": "civil",
+        "legal_issue": "sucesion ab intestato - con cita de arts. 2337, 2426, 439, 9 - PODER JUDICIAL DE LA PROVINCIA DE JUJUY JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8 Independencia No 987 - San Salvador de Jujuy SAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.- ENCABEZAMIENTO: El presente Expte.",
+        "facts_summary": "Resumen de hechos extraído automáticamente del texto del fallo SUCESION - ARMELLA.pdf. PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA Nº 4 - SECRETARÍA 8\nIndependencia Nº 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.-\nENCABEZAMIENTO:\nEl p",
+        "decision_summary": "Resumen de decisión extraído automáticamente del texto del fallo SUCESION - ARMELLA.pdf. PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA Nº 4 - SECRETARÍA 8\nIndependencia Nº 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.-\nENCABEZAMIENTO:\nEl p",
+        "key_reasoning": "I.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el bien que componen el acervo hereditario.- II.- En segundo orden, en lo que respecta a los honorarios profesionales devengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente del monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en los regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de discrecionalidad (CS., del 31/05/99 “Roca J.C. c Consultora S.A.",
+        "holding": "I.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el bien que componen el acervo hereditario.- II.- En segundo orden, en lo que respecta a los honorarios profesionales devengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente del monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en los regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de discrecionalidad (CS., del 31/05/99 “Roca J.C.",
+        "outcome": "Resumen de resultado extraído automáticamente del texto del fallo SUCESION - ARMELLA.pdf. PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA Nº 4 - SECRETARÍA 8\nIndependencia Nº 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.-\nENCABEZAMIENTO:\nEl p",
+        "verification_status": "verified",
+        "curation_status": "approved",
+        "verified_at": "2026-03-13",
+        "verified_by": "antigravity",
+        "curated_by": "antigravity",
+        "source_reference": "SUCESION - ARMELLA.pdf",
+        "territorial_priority": "alta",
+        "local_practice_value": "alta",
+        "court_level": "provincial",
+        "redundancy_group": "sucesiones",
+        "practical_frequency": "alta",
+        "local_topic_cluster": "sucesiones_jujuy",
+        "source_url": "ref:SUCESION - ARMELLA.pdf",
+        "strategic_value": "Valor forense local para sucesiones en Jujuy."
+      }
+    },
+    {
+      "case_id": "jujuy-sucesiones-sucesion_-_salcedo",
+      "court": "JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5",
+      "jurisdiction": "jujuy",
+      "forum": "civil",
+      "year": 2017,
+      "case_name": "",
+      "source": "file_system",
+      "source_url": "",
+      "legal_issue": "sucesion ab intestato - con cita de arts. 60, 437, 2, 439 - PODER JUDICIAL DE LA PROVINCIA DE JUJUY JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5 Independencia No 987 - San Salvador de Jujuy SAN SALVADOR DE JUJUY 2 DE MARZO DE 2017 AUTOS Y VISTOS: Los de éstos Expte No B-228194/10 caratulado: \"SUCESORIO: SALCEDO, NÉSTOR LIDORO \" de los que RESULTA: Que, a fs.",
+      "facts_summary": "Que, a fs. 11/12 se presenta el DR.",
+      "decision_summary": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR. MANUEL BELGRANO de la PROVINCIA DE JUJUY, REPUBLICA ARGENTINA le suceden en carácter de herederos en cuanto por derecho hubiere lugar y sin perjuicios de terceros, sus hijos: MARIA CELESTE SALCEDO DNI No 32.366.069, SILVANA MICAELA SALCEDO DNI No 28.646.558y ROCIO ANTONELLA SALCEDO DNI No 38.973.405, a quienes se les reconoce la posesión de la herencia, en los términos del Art.",
+      "key_reasoning": "Que, a fs. 90 rola el acta de AUDIENCIA prevista por el Art.",
+      "holding": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR.",
+      "outcome": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR.",
+      "topics": [
+        "sucesion ab intestato"
+      ],
+      "keywords": [
+        "sucesion ab intestato",
+        "art 60",
+        "art 437",
+        "art 2",
+        "art 439"
+      ],
+      "applied_articles": [
+        "60",
+        "437",
+        "2",
+        "439"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia",
+      "action_slug": "sucesion_ab_intestato",
+      "strategic_value": "",
+      "date": "2017-03-02",
+      "full_text": "PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY 2 DE MARZO DE 2017\nAUTOS Y VISTOS:\nLos de éstos Expte No B-228194/10 caratulado: \"SUCESORIO: SALCEDO,\nNÉSTOR LIDORO \" de los que\nRESULTA:\nQue, a fs. 11/12 se presenta el DR. CARLOS ERNESTO SANCHEZ MERA como\napoderado de los SRES. GLADIS MARIA DOLLI LOPEZ, MARIA CELESTE\nSALCEDO, SILVANA MICAELA SALCEDO y ROCIO ANTONELLA SALCEDO y\nsolicita personería de urgencia en los términos del art. 60 del C.P.C., para actuar en nombre y\nrepresentación de la SRA. NATALIA VERONICA SALCEDO, promoviendo el juicio\nsucesorio de SALCEDO, NESTOR LIDORO.-\nQue, a fs. 17 se presenta el DR. MAXIMILIANO VILLANUEVA como patrocinante\nde la SRA. NATALIA VERONICA SALCEDO.-\nQue, a fs. 22 se presenta el DR. LUIS MANUEL PUCHETA como apoderado de la\nSRA. MARIA CELESTE SALCEDO, a mérito de la copia debidamente juramentada de\npoder general para juicios que rola agregada a fs. 21 y con el patrocinio letrado del DR.\nMARCOS LATRONICO.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nQue, a fs. 34/35 se presenta el DR. LUIS MANUEL PUCHETA como apoderado de\nlos SRES. MARIA CELESTE SALCEDO, SILVANA MICAELA SALCEDO, ROCIO\nANTONELLA SALCEDO, a mérito de la copia debidamente juramentada de poder general\npara juicios que rola agregada a fs. 26/28 de autos y con el patrocinio letrado del DR.\nMARCOS LATRONICO.-\nQue a fs. 85 se ordena la realización de la AUDIENCIA art. 437 del C.P.C. la que se\ncumplimenta a fs. 90 de autos.-\nQue a fs. 105 rola dictamen favorable del Ministerio Público Fiscal y\nCONSIDERANDO:\nQue, a fs. 90 rola el acta de AUDIENCIA prevista por el Art. 437 del C.P.C.-\nQue, con el acta de fs. 91, 92, 93 se acredita el vínculo filial de MARIA CELESTE\nSALCEDO, SILVANA MICAELA SALCEDO, ROCIO ANTONELLA SALCEDO con\nel causante, mediante actas de nacimiento respectivamente.-\nQue, a fs. 115 rola agregada copia debidamente certificada de sentencia de\n“DIVORCIO VINCULAR POR PRESENTACION CONJUNTA: SALCEDO,\nNESTOR LIDORO y LOPEZ, GLADIS MARIA” de fecha 15/09/1.997.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nQue, con el acta de defunción obrante a fs. 123 se acredita el fallecimiento de\nSALCEDO, NESTOR LIDORO hecho ocurrido el 18 de ENERO de 2.010, en la ciudad de\nSAN SALVADOR DE JUJUY, DEPARTAMENTO DR. MANUEL BELGRANO de la\nPROVINCIA DE JUJUY, REPUBLICA ARGENTINA.-\nPor todo ello y teniendo presente lo dictaminado por el Ministerio Público Fiscal,\nRESUELVO:\n1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho\nocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY,\nDEPARTAMENTO DR. MANUEL BELGRANO de la PROVINCIA DE JUJUY,\nREPUBLICA ARGENTINA le suceden en carácter de herederos en cuanto por derecho\nhubiere lugar y sin perjuicios de terceros, sus hijos: MARIA CELESTE SALCEDO DNI\nNo 32.366.069, SILVANA MICAELA SALCEDO DNI No 28.646.558y ROCIO\nANTONELLA SALCEDO DNI No 38.973.405, a quienes se les reconoce la posesión de la\nherencia, en los términos del Art. 2.337 del Código Civil y Comercial de la Nación.-\n2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección\nde Rentas de la Provincia a sus efectos.-\n3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del\nmes de abril del presente año a horas 8.30 a los fines previstos por el Art. 439 del C.P.C.-\n4- Agregar copia en autos, protocolizar y notificar por cédula.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy",
+      "dataset_kind": "real",
+      "metadata": {
+        "parser": "heuristic_jurisprudence_parser_v1",
+        "detected_sections": [
+          "autos_y_vistos",
+          "considerando",
+          "resuelve",
+          "resulta"
+        ],
+        "missing_sections": [
+          "fundamentos"
+        ],
+        "parsed_at": "2026-03-14",
+        "case_name": "SUCESION - SALCEDO",
+        "court": "JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5",
+        "jurisdiction": "jujuy",
+        "forum": "civil",
+        "legal_issue": "sucesion ab intestato - con cita de arts. 60, 437, 2, 439 - PODER JUDICIAL DE LA PROVINCIA DE JUJUY JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5 Independencia No 987 - San Salvador de Jujuy SAN SALVADOR DE JUJUY 2 DE MARZO DE 2017 AUTOS Y VISTOS: Los de éstos Expte No B-228194/10 caratulado: \"SUCESORIO: SALCEDO, NÉSTOR LIDORO \" de los que RESULTA: Que, a fs.",
+        "facts_summary": "Resumen de hechos extraído automáticamente del texto del fallo SUCESION - SALCEDO.pdf. Que, a fs. 11/12 se presenta el DR.",
+        "decision_summary": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR. MANUEL BELGRANO de la PROVINCIA DE JUJUY, REPUBLICA ARGENTINA le suceden en carácter de herederos en cuanto por derecho hubiere lugar y sin perjuicios de terceros, sus hijos: MARIA CELESTE SALCEDO DNI No 32.366.069, SILVANA MICAELA SALCEDO DNI No 28.646.558y ROCIO ANTONELLA SALCEDO DNI No 38.973.405, a quienes se les reconoce la posesión de la herencia, en los términos del Art.",
+        "key_reasoning": "Que, a fs. 90 rola el acta de AUDIENCIA prevista por el Art.",
+        "holding": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR.",
+        "outcome": "1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho ocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY, DEPARTAMENTO DR.",
+        "verification_status": "verified",
+        "curation_status": "approved",
+        "verified_at": "2026-03-13",
+        "verified_by": "antigravity",
+        "curated_by": "antigravity",
+        "source_reference": "SUCESION - SALCEDO.pdf",
+        "territorial_priority": "alta",
+        "local_practice_value": "alta",
+        "court_level": "provincial",
+        "redundancy_group": "sucesiones",
+        "practical_frequency": "alta",
+        "local_topic_cluster": "sucesiones_jujuy",
+        "source_url": "ref:SUCESION - SALCEDO.pdf",
+        "strategic_value": "Valor forense local para sucesiones en Jujuy."
+      }
+    },
+    {
+      "case_id": "jujuy-sucesiones-sucesion_armella",
+      "court": "JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8",
+      "jurisdiction": "jujuy",
+      "forum": "civil",
+      "year": null,
+      "case_name": "SUCESORIO AB",
+      "source": "file_system",
+      "source_url": "ref:SUCESION - ARMELLA.pdf",
+      "legal_issue": "Sucesion ab intestato: Sobreseer la presente Sucesión del SR. A hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y representación de los SRES. Teniendo en cuenta los antecedentes esgrimidos y la partición.",
+      "facts_summary": "A hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y representación de los SRES.",
+      "decision_summary": "Sobreseer la presente Sucesión del SR. CRUZ ARMELLA, viudo, .133.884, conforme cesiones efectuadas por herederos declarados en autos.- II.- Adjudicar al heredero-cesionario SR.",
+      "key_reasoning": "Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente. c.",
+      "holding": "Sobreseer la presente Sucesión del SR.",
+      "outcome": "Sobreseer la presente Sucesión del SR.",
+      "topics": [
+        "sucesion ab intestato",
+        "declaratoria de herederos"
+      ],
+      "keywords": [
+        "sucesion ab intestato",
+        "art 2337",
+        "art 2426",
+        "art 439",
+        "art 67",
+        "sucesion"
+      ],
+      "applied_articles": [
+        "2337",
+        "2426",
+        "439",
+        "2424"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia",
+      "action_slug": "sucesion_ab_intestato",
+      "strategic_value": "",
+      "date": "",
+      "full_text": "PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY, 02 DE JULIO de 2.024.-\nENCABEZAMIENTO:\nEl presente Expte. N° B-121071/04, caratulado “SUCESORIO AB-\nINTESTATO de CRUZ ARMELLA”;\nANTECEDENTES:\nA hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y\nrepresentación de los SRES. MARIA ANGELICA ARMELLA, ALBERTO CARLOS\nARMELLA, MIGUEL ANGEL ARMELLA, MANUEL ROMUALDO ARMELLA,\nHUMBERTO RAFAEL ARMELLA, CARMEN ROSA ARMELLA, ISABEL CRISTINA\nARMELLA, OSVALDO CESAR ARMELLA y ANTONIA RITA ARMELLA, solicitando\nla apertura de la Sucesión del SR. CRUZ ARMELLA, viudo, DNI N° 93.133.884 fallecido\nen fecha 25 de Noviembre del año 2.002 en San Salvador de Jujuy, Dpto. Dr. Manuel\nBelgrano de la Provincia de Jujuy, República Argentina.-\nA hojas 35 se decreta la apertura de la Sucesión del SR. CRUZ ARMELLA,\nDNI N° 93.133.884, y se ordena publicar edictos y librar los oficios pertinentes.\nA hojas 72/72 vlta se dicta declaratoria de herederos, resolviendo que por el\nfallecimiento del SR. CRUZ ARMELLA, viudo, DNI N° 93.133.884, le suceden en carácter\nde herederos sus hijos SRES. ANTONIA RITA ARMELLA, CARMEN ROSA ARMELLA,\nALBERTO CARLOS ARMELLA, MIGUEL ANGEL ARMELLA, HUMBERTO RAFAEL\nARMELLA, MANUEL ROMUALDO ARMELLA, ISABEL CRISTINA ARMELLA,\nOSVALDO CESAR ARMELLA y MARIA ANGELICA ARMELLA, a quienes se les\nreconoce la posesión de la herencia en los términos del Art. 2337, 2426 y cctes del Código\nCivil y Comercial de la Nación.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nA hojas 78 se lleva a cabo la audiencia prevista por el art. 439, designándose al DR.\nJULIO ALBERTO FARFAN como perito inventariador, avaluador y partidor, quien se\nrecibe del cargo a hojas 78 vlta.-\nA hojas 81 se presenta inventario y avalúo del único bien Inmueble Matricula P-\n3140-21649 que compone el acervo hereditario de la Sucesión, el que fue aprobado a hojas\n83.-\nA hojas 83/85 se acredita con los comprobantes respectivos el pago de la tasa de\njusticia final.-\nA hojas 133 se tiene presente la cesión de acciones y derechos hereditarios\nEscritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 efectuada por los\nHEREDEROS ISABEL CRISTINA ARMELLA, MANUEL ROMUALDO ARMELLA,\nHUMBERTO RAFAEL ARMELLA, MIGUEL ÁNGEL ARMELLA, ANTONIA RITA\nARMELLA, MARÍA ANGÉLICA ARMELLA, ALBERTO CARLOS ARMELLA a favor\nde OSVALDO CESAR ARMELLA Y GLADIS ESTER BURGOS, sobre el inmueble\nindividualizado como: Lote 37 manzana 18-B1 Nomenclatura Catastral: Circunscripción 1\nSección 1 Manzana 20 Parcela 20 Padrón P-21649, pasada ante Escribana autorizante De\nBedia Ana Maria, titular del Registro Notarial N° 17.-\nA hojas 137 se presenta al SR. OSVALDO CESAR ARMELLA DNI N°\n13.729.448 con el patrocinio letrado de la DRA. MARIA GUADALUPE VASQUEZ.-\nA hojas 143/144 se presenta cesión de acciones y derechos hereditarios\nEscritura N° 18 de fecha 16/05/2022 efectuada por la SRA. CARMEN ROSA ARMELLA a\nfavor de OSVALDO CESAR ARMELLA Y GLADIS ESTER BURGOS, sobre el inmueble\nindividualizado como: Lote 37 manzana 18-B1 Nomenclatura Catastral: Circunscripción 1\nSección 1 Manzana 20 Parcela 20 Padrón P-21649, mediante pasada ante Escribana\nautorizante De Bedia Ana Maria, titular del Registro Notarial N° 17, la cual se tiene presente\npara su oportunidad. -\nMediante escrito digital no 720288 de fecha 30 de mayo del año 2023 se\npresenta PARTICIÓN conforme: Escritura No 192 Cesión de Acciones y Derechos\nHereditarios de fecha 10/12/2007 obrante a hojas 115/117 efectuada por los herederos Isabel\nCristina Armella, Manuel Romualdo Armella, Humberto Rafael Armella, Miguel Ángel\nArmella, Antonia Rita Armella, María Angélica Armella, Alberto Carlos Armella a favor de\nOsvaldo Cesar Armella y Gladis Ester Burgos y Escritura No 18 Cesión de Acciones y\nDerechos Hereditarios de fecha 16/05/2022 obrante a hojas 143/144 efectuada por la heredera\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nCarmen Rosa Armella a favor de Osvaldo Cesar Armella y Gladis Ester Burgos.-\nEn fecha 03/11/2023 la Dirección Provincial de Inmueble respuesta de oficio ,\nponiendo en conocimiento a este Juzgado que la Escritura N°74 Fha. 15/111/2001-\nEsc.Tlar.Reg. del N 2 c/Cert.Pres.N°3258 Fha. 29/11/2001, fue inscripta en forma provisoria\npor el plazo de 180 dias en cumplimiento del Articulo 9° de la Ley N° 17.801 y\nReglamentaria Local, el cual a la fecha se encuentra caduco.(rubro 7 asiento 3).\nEn fecha 25 de marzo del cte. Año se aprueba la Partición y adjudicación del\nbien que compone el acervo hereditario practicado en escrito digital No 720288.-\nFUNDAMENTOS:\nI.- Teniendo en cuenta los antecedentes esgrimidos y la partición practicada\nconforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha\n10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas\n143/144 corresponde bajos estos lineamientos sobreseer la presente sucesión y adjudicar el\nbien que componen el acervo hereditario.-\nII.- En segundo orden, en lo que respecta a los honorarios profesionales\ndevengados, cabe mencionar que las regulaciones de honorarios no dependen exclusivamente\ndel monto del juicio o de las escalas pertinentes, sino de un conjunto de la pautas previstas en\nlos regímenes respectivos que pueden ser evaluadas por los jueces con un amplio margen de\ndiscrecionalidad (CS., del 31/05/99 “Roca J.C. c Consultora S.A. S/ ordinario” en Fallos\n322:1100).- En consonancia, la Suprema Corte de Justicia en L.A. N° 48, F° 210/213,\nN° 82, ha sostenido entre otros conceptos que: “no debe olvidarse que el primer elemento a\nponderar a la hora de regular los honorarios profesionales consiste en la labor efectivamente\nrealizada en la causa, su extensión y su eficacia enderezada a esclarecer al sentenciante\nrespecto de la materia litigiosa. Solo después corresponde echar mano a las pautas numéricas\nque proporciona el régimen legal...”.-\nSiguiendo este orden de ideas si bien la nueva ley arancelaria vigente\nen la Provincia de Jujuy No 6368 establece en su art. 67 que las disposiciones de la presente\nLey se aplicarán a todos los procesos en curso, en los que no haya regulación de honorarios,\nal tiempo de su vigencia y no estando previsto en el cuerpo legal referido (Ley N° 6368), un\nmínimo establecido para la regulacion por la primera etapa del juicio sucesorio , como si lo\ntenia dispuesto la ley arancelaria anteriormente vigente (Ley N° 6112, indicando la\naplicacion de 30 UMAS). Excepcionalmente, atento a constancias de autos, a fin de\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\njustipreciar la actuacion profesional de los letrados intervinientes , en concordancia con lo\nestablecido en reiteradas oportunidades por nuestra Excma. Suprema Corte de Justicia en\ncuanto debe retribuirse de manera suficiente la labor de los profesionales en resguardo de la\ndignidad de los mismos, por lo que considero que de no aplicarse un minimo de honorarios se\nestaría vulnerando el derecho de los letrados a obtener una retribución justa por el desempeño\nen los presentes obrados.-\nConforme a lo expuesto, teniendo en cuenta la finalidad de las normas aludidas y\nrealizando una interpretación integral y coherente del ordenamiento normativo vigente (Ley\nNo 6358, arts. 23, 37 cctes) corresponde regular los honorarios profesionales a los DRES.\nJULIO ALBERTO FARFAN en la suma de PESOS DOSCIENTOS NOVENTA Y SEIS\nMIL DOSCIENTOS CINCUENTA ($296.250), y al DR. ANDRES ESTEBAN REYNOSO\nen la suma de PESOS QUINIENTOS CINCUENTA Y SEIS MIL CIENTO OCHENTA\n($550.180) como letrados intervinientes en forma proporcional en su caracter de letrado\napoderado y patrocinante respectivamente(art. 15 ,Ley No 6368) durante la primera y segunda\netapa del proceso haciendo la salvedad que por la primera etapa se regulan 30 UMAS en las\nproporciones indicadas a fin de retribuir de manera suficiente la labor de los profesionales\npor el desempeño en los presentes obrados ,y a la DRA. MARIA GUADALUPE VASQUEZ\nen forma proporcional durante la última etapa (tercera) en la suma de PESOS CUARENTA\nMIL TRESCIENTOS NOVENTA Y UNO ($40.391) obteniendose dichas sumas de calcular\nel 20% del monto de la valuación fiscal actualizada que adjunta en pdf mediante escrito\ndigital No 720288 de fecha 30/05/23, por el valor de $ 403.915, y a su división por etapas,\nello en virtud de que por tratarse de un inmueble y no habiendo sido tasado en autos, se\ntendrá como cuantía del asunto la ultima valuación fiscal presentada, incrementada en un\ncincuenta por ciento (50%), detrayéndose el 20% del monto resultante (art. 25 de la citada\nley)\nEn lo que respecta a la regulación por la labor en el carácter de Perito Avaluador\ne Inventariador, corresponde regular al DR. JULIO ALBERTO FARFAN la suma de PESOS\nOCHO MIL SETENTA Y OCHO ($8.078) la cual surge de extraer el 2% al monto del\ninventario y asimismo a la DRA. MARIA GUADALUPE VASQUEZ, en la suma de\nPESOS DOCE MIL CIENTO DIECISIETE ($12.117) por su labor en el carácter de perito\npartidora, lo cual surge de extraer el 3% del monto del inventario y avalúo practicado en\nautos (art. 37 de la ley 6112). Dichos montos han sido fijados en la fecha del presente por lo\nque sólo en caso de mora devengarán interés conforme a la tasa activa que fija diariamente el\nBanco Central de la República Argentina. “Recurso de inconstitucionalidad interpuesto en el\nexpte No B-145731/05 (sala I- Tribunal del Trabajo)) Indemnización por despido incausado y\notros rubros Zamudio, Silvia Zulema C/ Achi Yolanda y otro (L.A. 54, F° 673/678 N° 235),\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nmás IVA si correspondiere.-\nPor ello, y de conformidad a lo dispuesto por los Arts. 2337, 2424, 2426, y\ncctes. del C.C.C.N, este Juzgado de Primera Instancia en lo Civil y Comercial No 4 resuelve,\nPARTE DISPOSITIVA:\nI.- Sobreseer la presente Sucesión del SR. CRUZ ARMELLA, viudo, DNI N°\n93.133.884, conforme cesiones efectuadas por herederos declarados en autos.-\nII.- Adjudicar al heredero-cesionario SR. OSVALDO CESAR ARMELLA DNI No\n13.729.448, CUIL 20-13729448-7, de nacionalidad argentina, de estado civil: casado en\nprimeras nupcias con Gladis Ester Burgos, domiciliado en Avenida Libertad No 777, del\nBarrio 25 de Mayo de la ciudad de Palpalá, Departamento Palpalá, Provincia de Jujuy, la\nporción de la 5/9 avas parte del INMUEBLE ubicado en la ciudad de Palpalá, jurisdicción del\nDepartamento de Palpalá de esta Provincia, individualizado según plano aprobado por\nResolución No 54/1976 como lote 37, manzana 18 –B1, nomenclatura catastral:\nCircunscripción 1, Sección 1, Manzana 20, Parcela 20, Padrón P-21649, conforme a la\npartición practicada en autos.-\nIII.- Adjudicar a la cesionaria SRA. GLADIS ESTER BURGOS DNI 14.930.430,\nCUIL 23-14930430-4, con domicilio en Avenida Libertad No 777, Barrio 25 de Mayo de la\nciudad de Palpalá, Departamento Palpalá, Provincia de Jujuy, la porción de la 4/9 avas parte\ndel INMUEBLE ubicado en la ciudad de Palpalá, jurisdicción del Departamento de Palpalá\nde esta Provincia, individualizado según plano aprobado por Resolución No 54/1976 como\nlote 37, manzana 18 –B1, nomenclatura catastral: Circunscripción 1, Sección 1, Manzana 20,\nParcela 20, Padrón P-21649, conforme a la partición practicada en autos.-\nIV.- Regular los honorarios profesionales de los letrados intervinientes de\nconformidad a los fundamentos, a los DRES. JULIO ALBERTO FARFAN en la suma de\nPESOS DOSCIENTOS NOVENTA Y SEIS MIL DOSCIENTOS CINCUENTA ($296.250),\ny al DR. ANDRES ESTEBAN REYNOSO en la suma de PESOS QUINIENTOS\nCINCUENTA Y SEIS MIL CIENTO OCHENTA ($550.180) ,y a la DRA. MARIA\nGUADALUPE VASQUEZ en forma proporcional durante la última etapa (tercera) en la\nsuma de PESOS CUARENTA MIL TRESCIENTOS NOVENTA Y UNO ($40.391).\nAsimismo, al DR. JULIO ALBERTO FARFAN como Perito inventariador y avaluador en la\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8\nIndependencia No 987 - San Salvador de Jujuy\nsuma de PESOS OCHO MIL SETENTA Y OCHO ($8.078). y a la DRA. MARIA\nGUADALUPE VASQUEZ, por la labor como perito partidora en la suma de PESOS DOCE\nMIL CIENTO DIECISIETE ($12.117). Dichas sumas, han sido fijadas a la fecha del\npresente por lo que sólo en caso de mora devengará interés conforme a la tasa activa de\nconformidad a la Doctrina del Superior Tribunal de Justicia en la causa: “Recurso de\ninconstitucionalidad interpuesto en el Expte. No B-145.731/05 (Sala I- Tribunal del Trabajo)\nIndemnización por despido incausado y otros rubros: Zamudio, Silvia Zulema c/ Achi\nYolanda y otro “, (L. A. 54, Fo 673- 678- No 235) debiendo ser soportados por los\nadjudicatarios en las proporciones correspondiente a cada uno de ellos.-\nV.- Expedir testimonio constitutivo de hijuelas, facultándose a la DRA. MARIA\nGUADALUPE VASQUEZ para el diligenciamiento, suscripción y firma de la rogatoria\ncorrespondiente, a los fines de la inscripción del testimonio de hijuelas ante la Dirección\nGral. de Inmuebles, ello previa acreditación del pago de los aportes previstos en el inc. b) y\ne) del art.22 de la Ley 4764/94.-\nVI.- Proveyendo al escrito digital N° 1287470, estese la letrada a lo aqui dispuesto\nVII.- Notificar, hacer saber y agregar copia en autos\nFirmado por Cabana, Ricardo Sebastian - Juez de Primera Instancia en lo Civil y Comercial\nFirmado por Alfonso, Arturo Daniel - Firma habilitada",
+      "dataset_kind": "real",
+      "metadata": {
+        "parser": "heuristic_jurisprudence_parser_v2",
+        "detected_sections": [
+          "fundamentos",
+          "resuelve",
+          "resulta"
+        ],
+        "missing_sections": [
+          "autos_y_vistos",
+          "considerando"
+        ],
+        "parsed_at": "2026-03-14",
+        "verification_status": "verified",
+        "curation_status": "approved",
+        "verified_at": "2026-03-13",
+        "verified_by": "antigravity",
+        "curated_by": "antigravity",
+        "source_reference": "SUCESION - ARMELLA.pdf",
+        "territorial_priority": "alta",
+        "local_practice_value": "alta",
+        "court_level": "provincial",
+        "redundancy_group": "sucesiones",
+        "practical_frequency": "alta",
+        "local_topic_cluster": "sucesiones_jujuy",
+        "strategic_value": "Valor forense local para sucesiones en Jujuy.",
+        "case_name": "SUCESORIO AB",
+        "court": "JUZGADO DE PRIMERA INSTANCIA No 4 - SECRETARÍA 8",
+        "jurisdiction": "jujuy",
+        "forum": "civil",
+        "legal_issue": "Sucesion ab intestato: Sobreseer la presente Sucesión del SR. A hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y representación de los SRES. Teniendo en cuenta los antecedentes esgrimidos y la partición.",
+        "facts_summary": "A hojas 19 se presenta el DR. JULIO ALBERTO FARFAN, en nombre y representación de los SRES.",
+        "decision_summary": "Sobreseer la presente Sucesión del SR. CRUZ ARMELLA, viudo, .133.884, conforme cesiones efectuadas por herederos declarados en autos.- II.- Adjudicar al heredero-cesionario SR.",
+        "key_reasoning": "Teniendo en cuenta los antecedentes esgrimidos y la partición practicada conforme a las cesiones de derechos y acciones hereditarias, Escritura No 192 de fecha 10/12/2007 obrante a hojas 115/117 y Escritura No 18 de fecha 16/05/2022 obrante a hojas 143/144 corresponde bajos estos lineamientos sobreseer la presente. c.",
+        "holding": "Sobreseer la presente Sucesión del SR.",
+        "outcome": "Sobreseer la presente Sucesión del SR.",
+        "source_url": "ref:SUCESION - ARMELLA.pdf"
+      }
+    },
+    {
+      "case_id": "jujuy-sucesiones-sucesion_salcedo",
+      "court": "JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5",
+      "jurisdiction": "jujuy",
+      "forum": "civil",
+      "year": 2017,
+      "case_name": "SUCESORIO: SALCEDO, NÉSTOR LIDORO",
+      "source": "file_system",
+      "source_url": "ref:SUCESION - SALCEDO.pdf",
+      "legal_issue": "Sucesion ab intestato: 337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la.",
+      "facts_summary": "a fs. 11/12 se presenta el DR.",
+      "decision_summary": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+      "key_reasoning": "a fs. 90 rola el acta de AUDIENCIA prevista por el Art.",
+      "holding": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+      "outcome": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+      "topics": [
+        "sucesion ab intestato"
+      ],
+      "keywords": [
+        "sucesion ab intestato",
+        "art 60",
+        "art 437",
+        "art 2",
+        "art 439"
+      ],
+      "applied_articles": [
+        "60",
+        "437",
+        "2",
+        "439"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia",
+      "action_slug": "sucesion_ab_intestato",
+      "strategic_value": "",
+      "date": "2017-03-02",
+      "full_text": "PODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nSAN SALVADOR DE JUJUY 2 DE MARZO DE 2017\nAUTOS Y VISTOS:\nLos de éstos Expte No B-228194/10 caratulado: \"SUCESORIO: SALCEDO,\nNÉSTOR LIDORO \" de los que\nRESULTA:\nQue, a fs. 11/12 se presenta el DR. CARLOS ERNESTO SANCHEZ MERA como\napoderado de los SRES. GLADIS MARIA DOLLI LOPEZ, MARIA CELESTE\nSALCEDO, SILVANA MICAELA SALCEDO y ROCIO ANTONELLA SALCEDO y\nsolicita personería de urgencia en los términos del art. 60 del C.P.C., para actuar en nombre y\nrepresentación de la SRA. NATALIA VERONICA SALCEDO, promoviendo el juicio\nsucesorio de SALCEDO, NESTOR LIDORO.-\nQue, a fs. 17 se presenta el DR. MAXIMILIANO VILLANUEVA como patrocinante\nde la SRA. NATALIA VERONICA SALCEDO.-\nQue, a fs. 22 se presenta el DR. LUIS MANUEL PUCHETA como apoderado de la\nSRA. MARIA CELESTE SALCEDO, a mérito de la copia debidamente juramentada de\npoder general para juicios que rola agregada a fs. 21 y con el patrocinio letrado del DR.\nMARCOS LATRONICO.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nQue, a fs. 34/35 se presenta el DR. LUIS MANUEL PUCHETA como apoderado de\nlos SRES. MARIA CELESTE SALCEDO, SILVANA MICAELA SALCEDO, ROCIO\nANTONELLA SALCEDO, a mérito de la copia debidamente juramentada de poder general\npara juicios que rola agregada a fs. 26/28 de autos y con el patrocinio letrado del DR.\nMARCOS LATRONICO.-\nQue a fs. 85 se ordena la realización de la AUDIENCIA art. 437 del C.P.C. la que se\ncumplimenta a fs. 90 de autos.-\nQue a fs. 105 rola dictamen favorable del Ministerio Público Fiscal y\nCONSIDERANDO:\nQue, a fs. 90 rola el acta de AUDIENCIA prevista por el Art. 437 del C.P.C.-\nQue, con el acta de fs. 91, 92, 93 se acredita el vínculo filial de MARIA CELESTE\nSALCEDO, SILVANA MICAELA SALCEDO, ROCIO ANTONELLA SALCEDO con\nel causante, mediante actas de nacimiento respectivamente.-\nQue, a fs. 115 rola agregada copia debidamente certificada de sentencia de\n“DIVORCIO VINCULAR POR PRESENTACION CONJUNTA: SALCEDO,\nNESTOR LIDORO y LOPEZ, GLADIS MARIA” de fecha 15/09/1.997.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy\nQue, con el acta de defunción obrante a fs. 123 se acredita el fallecimiento de\nSALCEDO, NESTOR LIDORO hecho ocurrido el 18 de ENERO de 2.010, en la ciudad de\nSAN SALVADOR DE JUJUY, DEPARTAMENTO DR. MANUEL BELGRANO de la\nPROVINCIA DE JUJUY, REPUBLICA ARGENTINA.-\nPor todo ello y teniendo presente lo dictaminado por el Ministerio Público Fiscal,\nRESUELVO:\n1- Declarar que por fallecimiento de don SALCEDO, NÉSTOR LIDORO hecho\nocurrido el día 18 de ENERO de 2.010 en la ciudad de SAN SALVADOR DE JUJUY,\nDEPARTAMENTO DR. MANUEL BELGRANO de la PROVINCIA DE JUJUY,\nREPUBLICA ARGENTINA le suceden en carácter de herederos en cuanto por derecho\nhubiere lugar y sin perjuicios de terceros, sus hijos: MARIA CELESTE SALCEDO DNI\nNo 32.366.069, SILVANA MICAELA SALCEDO DNI No 28.646.558y ROCIO\nANTONELLA SALCEDO DNI No 38.973.405, a quienes se les reconoce la posesión de la\nherencia, en los términos del Art. 2.337 del Código Civil y Comercial de la Nación.-\n2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección\nde Rentas de la Provincia a sus efectos.-\n3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del\nmes de abril del presente año a horas 8.30 a los fines previstos por el Art. 439 del C.P.C.-\n4- Agregar copia en autos, protocolizar y notificar por cédula.-\nPODER JUDICIAL DE LA PROVINCIA DE JUJUY\nJUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5\nIndependencia No 987 - San Salvador de Jujuy",
+      "dataset_kind": "real",
+      "metadata": {
+        "parser": "heuristic_jurisprudence_parser_v2",
+        "detected_sections": [
+          "autos_y_vistos",
+          "considerando",
+          "resuelve",
+          "resulta"
+        ],
+        "missing_sections": [
+          "fundamentos"
+        ],
+        "parsed_at": "2026-03-14",
+        "verification_status": "verified",
+        "curation_status": "approved",
+        "verified_at": "2026-03-13",
+        "verified_by": "antigravity",
+        "curated_by": "antigravity",
+        "source_reference": "SUCESION - SALCEDO.pdf",
+        "territorial_priority": "alta",
+        "local_practice_value": "alta",
+        "court_level": "provincial",
+        "redundancy_group": "sucesiones",
+        "practical_frequency": "alta",
+        "local_topic_cluster": "sucesiones_jujuy",
+        "strategic_value": "Valor forense local para sucesiones en Jujuy.",
+        "case_name": "SUCESORIO: SALCEDO, NÉSTOR LIDORO",
+        "court": "JUZGADO DE PRIMERA INSTANCIA No 3 - SECRETARÍA 5",
+        "jurisdiction": "jujuy",
+        "forum": "civil",
+        "legal_issue": "Sucesion ab intestato: 337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la.",
+        "facts_summary": "a fs. 11/12 se presenta el DR.",
+        "decision_summary": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+        "key_reasoning": "a fs. 90 rola el acta de AUDIENCIA prevista por el Art.",
+        "holding": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+        "outcome": "337 del Código Civil y Comercial de la Nación.- 2- Mandar cesar la intervención del Ministerio Público Fiscal y dársela a la Dirección de Rentas de la Provincia a sus efectos.- 3- Fijar la audiencia que tendrá lugar por ante ‚éste juzgado y secretaria el día 25 del mes de abril del presente año a horas 8.30 a los.",
+        "source_url": "ref:SUCESION - SALCEDO.pdf"
+      }
+    }
+  ]
+}

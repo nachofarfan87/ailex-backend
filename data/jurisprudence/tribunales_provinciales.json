@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "dataset_label": "Tribunales Provinciales",
+    "jurisdiction_scope": "provincial",
+    "focus": [
+      "familia",
+      "sucesiones",
+      "alimentos",
+      "divorcio",
+      "jujuy"
+    ],
+    "status": "empty_curated_slot",
+    "description": "Reservado para fallos reales verificados de tribunales provinciales, con prioridad futura sobre Jujuy. Este commit no incorpora fallos reales por prudencia de verificabilidad."
+  },
+  "cases": []
+}

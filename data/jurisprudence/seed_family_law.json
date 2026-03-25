@@ -1,0 +1,9 @@
+{
+  "_meta": {
+    "dataset_kind": "seed",
+    "dataset_label": "Seed Family Law",
+    "status": "template_only",
+    "description": "Seed dataset vacio para futuras cargas manuales curadas. No es corpus real ni debe usarse en produccion sin activacion explicita."
+  },
+  "cases": []
+}

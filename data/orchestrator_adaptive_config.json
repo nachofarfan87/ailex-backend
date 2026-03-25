@@ -1,0 +1,15 @@
+{
+  "ambiguity_threshold": 0.12,
+  "manual_review_threshold": 0.5,
+  "low_confidence_threshold": 0.5,
+  "low_decision_confidence_threshold": 0.5,
+  "prefer_hybrid_domains": [],
+  "force_full_pipeline_domains": [],
+  "strategy_weights": {
+    "aggressive": 1.0,
+    "cautious": 1.0,
+    "conservative": 1.0
+  },
+  "version": "v1",
+  "updated_at": "2026-03-23T17:52:18.352994+00:00"
+}

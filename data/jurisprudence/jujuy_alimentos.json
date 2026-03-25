@@ -1,0 +1,97 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "editorial_line": "jujuy_local",
+    "source_name": "poder_judicial_jujuy",
+    "verification_status": "verified",
+    "curation_status": "approved",
+    "verified_at": "2026-03-17",
+    "verified_by": "codex",
+    "curated_by": "codex",
+    "source_reference": "fallos_curados_alimentos",
+    "territorial_priority": "alta",
+    "local_practice_value": "alta",
+    "court_level": "superior_tribunal",
+    "redundancy_group": "alimentos_jujuy",
+    "practical_frequency": "alta",
+    "local_topic_cluster": "alimentos_jujuy"
+  },
+  "precedents": [
+    {
+      "id": "jujuy-alimentos-cf15741-2020",
+      "topic": "alimentos",
+      "subtopic": "hijo_mayor_estudiante_universitario",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Superior Tribunal de Justicia de Jujuy - Sala I Civil, Comercial y de Familia",
+      "year": 2020,
+      "date": "2020-02-12",
+      "case_name": "Recurso en cesacion y aumento de cuota alimentaria",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:020 - CF-15741_2019.pdf",
+      "legal_issue": "Aumento de cuota alimentaria para hija mayor de edad que cursa estudios universitarios y no puede sostenerse independientemente.",
+      "applied_articles": [
+        "CCyC 646",
+        "CCyC 659",
+        "CCyC 663"
+      ],
+      "criterion": "La cuota alimentaria puede mantenerse y aumentar a favor del hijo mayor estudiante cuando la dedicacion razonable a sus estudios le impide procurarse autosustento suficiente.",
+      "strategic_use": "Sirve para sostener alimentos o aumento en favor de hijos mayores hasta veinticinco anos cuando se prueba cursado universitario serio, residencia estudiantil y falta de recursos propios.",
+      "full_text": "El Superior Tribunal reseña que la alimentada era mayor de edad, cursaba una carrera universitaria en otra provincia y no disponia de tiempo suficiente para desarrollar una actividad remunerada que cubriera su manutencion. Considera acreditado que el regimen del articulo 663 del Codigo Civil y Comercial permite extender y aumentar la prestacion cuando la prosecucion de estudios impide autosostenerse. Destaca tambien que el progenitor no demostro recursos propios suficientes de la alimentada y mantiene la razonabilidad del porcentaje fijado para atender sus necesidades.",
+      "keywords": [
+        "alimentos",
+        "mayoria de edad",
+        "estudiante universitaria",
+        "aumento de cuota",
+        "porcentaje de ingresos"
+      ],
+      "confidence": 0.93,
+      "action_slug": "alimentos_hijos",
+      "facts_summary": "Se discutio la cesacion parcial de cuota y la reconvencion por aumento en favor de una hija mayor estudiante radicada fuera de Jujuy.",
+      "decision_summary": "Se confirmo la procedencia de mantener y elevar la cuota para la hija estudiante, por imposibilidad razonable de autosustento durante la carrera.",
+      "key_reasoning": "La obligacion alimentaria puede extenderse hasta los veinticinco anos si los estudios absorben tiempo relevante y no hay recursos propios suficientes.",
+      "holding": "La condicion de estudiante universitaria y la imposibilidad razonable de sostenerse por si misma habilitan mantener y aumentar la cuota alimentaria del progenitor.",
+      "outcome": "Se rechazo el recurso extraordinario y quedo firme el aumento de cuota.",
+      "document_type": "sentencia",
+      "procedural_stage": "recursiva"
+    },
+    {
+      "id": "jujuy-alimentos-cf15340-2020",
+      "topic": "alimentos",
+      "subtopic": "progenitor_afin_obligacion_subsidiaria",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Superior Tribunal de Justicia de Jujuy - Sala I Civil, Comercial y de Familia",
+      "year": 2020,
+      "date": "2020-05-22",
+      "case_name": "Recurso sobre alimentos contra progenitor afin",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:022 - CF-15340_2018.pdf",
+      "legal_issue": "Alcance subsidiario de la obligacion alimentaria del progenitor afin cuando existen progenitores biologicos capaces y medios patrimoniales del grupo familiar.",
+      "applied_articles": [
+        "CCyC 676"
+      ],
+      "criterion": "La obligacion alimentaria del progenitor afin es subsidiaria y excepcional; no procede mientras los progenitores biologicos conserven capacidad juridica y economica para afrontar alimentos.",
+      "strategic_use": "Sirve para resistir demandas contra progenitor afin si no se acredita insuficiencia real de los obligados principales o la excepcionalidad exigida por el articulo 676.",
+      "full_text": "La sentencia explica que el articulo 676 del Codigo Civil y Comercial coloca al progenitor afin en un grado posterior respecto de la obligacion alimentaria y solo permite el reclamo cuando faltan o resultan insuficientes los obligados principales. Pondera que en el caso el padre biologico cumplia una cuota, la madre contaba con aptitud laboral y existian bienes del grupo familiar, por lo que no se verificaban los presupuestos excepcionales para trasladar el deber alimentario al conviviente o ex conviviente afin.",
+      "keywords": [
+        "alimentos",
+        "progenitor afin",
+        "obligacion subsidiaria",
+        "insuficiencia de recursos",
+        "responsabilidad parental"
+      ],
+      "confidence": 0.9,
+      "action_slug": "alimentos_hijos",
+      "facts_summary": "La demanda pretendia imponer alimentos a un progenitor afin pese a la existencia de padre biologico obligado y posibilidades economicas de la madre.",
+      "decision_summary": "Se mantuvo el rechazo de la demanda al no probarse los presupuestos excepcionales que habilitan reclamar alimentos al progenitor afin.",
+      "key_reasoning": "El deber alimentario deriva primariamente de la responsabilidad parental y solo cede de manera subsidiaria al progenitor afin en supuestos excepcionales.",
+      "holding": "No corresponde trasladar la obligacion alimentaria al progenitor afin cuando los progenitores biologicos conservan deber y posibilidades de asistencia.",
+      "outcome": "Se rechazo el recurso extraordinario y quedo firme el rechazo de la demanda alimentaria.",
+      "document_type": "sentencia",
+      "procedural_stage": "recursiva"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "dataset_label": "Plantilla Jujuy local",
+    "editorial_line": "jujuy_local",
+    "status": "template_only",
+    "description": "Plantilla operativa para subcorpus Jujuy. No se carga porque vive en /templates."
+  },
+  "cases": [
+    {
+      "case_id": "jujuy-familia-anio-identificador",
+      "court": "",
+      "jurisdiction": "jujuy",
+      "forum": "",
+      "year": 0,
+      "case_name": "",
+      "source": "",
+      "source_url": "",
+      "legal_issue": "",
+      "facts_summary": "",
+      "decision_summary": "",
+      "key_reasoning": "",
+      "holding": "",
+      "outcome": "",
+      "topics": [],
+      "keywords": [],
+      "applied_articles": [],
+      "procedural_stage": "",
+      "document_type": "",
+      "action_slug": "",
+      "strategic_value": "",
+      "territorial_priority": "",
+      "local_practice_value": "",
+      "court_level": "",
+      "redundancy_group": "",
+      "practical_frequency": "",
+      "local_topic_cluster": "",
+      "chamber": "",
+      "date": "",
+      "parties": [],
+      "full_text": "",
+      "dataset_kind": "real",
+      "metadata": {
+        "verification_status": "verified",
+        "curation_status": "approved",
+        "verified_at": "YYYY-MM-DD",
+        "verified_by": "",
+        "curated_by": "",
+        "source_reference": "",
+        "editorial_line": "jujuy_local",
+        "ingested_at": "YYYY-MM-DD",
+        "dataset_version": "v1",
+        "notes": ""
+      }
+    }
+  ]
+}

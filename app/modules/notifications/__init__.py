@@ -1,0 +1,1 @@
+"""AILEX Notifications module."""

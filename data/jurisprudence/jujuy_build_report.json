@@ -1,0 +1,46 @@
+{
+  "status": "completed",
+  "input_dir": "C:\\Users\\nacho\\Documents\\APPS\\AILEX\\backend\\data\\raw_jurisprudence",
+  "generated_at": "2026-03-14T00:40:54Z",
+  "finished_at": "2026-03-14T00:40:56Z",
+  "totals": {
+    "seen_files": 8,
+    "processed": 8,
+    "skipped_existing": 0,
+    "skipped_empty_text": 0,
+    "parse_errors": 0,
+    "missing_directories": 0
+  },
+  "folders": [
+    {
+      "source_folder": "alimentos",
+      "target_file": "jujuy_family.json",
+      "processed": 3,
+      "skipped_existing": 0,
+      "skipped_empty_text": 0,
+      "parse_errors": 0,
+      "missing_directory": false,
+      "errors": []
+    },
+    {
+      "source_folder": "divorcio",
+      "target_file": "jujuy_family.json",
+      "processed": 3,
+      "skipped_existing": 0,
+      "skipped_empty_text": 0,
+      "parse_errors": 0,
+      "missing_directory": false,
+      "errors": []
+    },
+    {
+      "source_folder": "sucesiones",
+      "target_file": "jujuy_succession.json",
+      "processed": 2,
+      "skipped_existing": 0,
+      "skipped_empty_text": 0,
+      "parse_errors": 0,
+      "missing_directory": false,
+      "errors": []
+    }
+  ]
+}

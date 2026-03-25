@@ -1,0 +1,326 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "model_id": "family_formal_general",
+      "name": "Modelo general familia formal",
+      "source_type": "virtual",
+      "priority": 1,
+      "rating": 3,
+      "applicability": {
+        "forum": "familia",
+        "document_kind": "formal",
+        "tags": ["estructura_base"],
+        "preferred_tags": [],
+        "excluded_tags": []
+      },
+      "style_profile": {
+        "tone": "balanced_prudent",
+        "structure": ["hechos_decisivos", "requisitos", "riesgo_procesal"],
+        "argument_density": "standard",
+        "facts_style": "concrete",
+        "petitum_style": "prudent",
+        "opening_line": "La pieza debe ordenar el conflicto, los hechos decisivos, los requisitos y la cobertura probatoria sin sobreactuar la conclusion.",
+        "analysis_directive": "El analisis debe avanzar desde la norma positiva hacia el conflicto probado.",
+        "facts_directive": "Los hechos deben exponerse con foco litigioso, fechas y soporte disponible.",
+        "petitum_directive": "El cierre debe pedir solo aquello que ya aparece sostenido por hechos, norma y prueba.",
+        "section_cues": ["Priorizar claridad estructural y trazabilidad."]
+      },
+      "argument_strategy": {
+        "focus": "formalism",
+        "risk_tolerance": "low",
+        "proof_priority": ["documental"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Fallback general para familia en modo formal."
+    },
+    {
+      "model_id": "alimentos_base_belasquez",
+      "name": "Alimentos base con conflicto claro",
+      "source_path": "backend/data/writing_models/alimentos/001 - ALIMENTOS - BELASQUEZ.pdf",
+      "source_type": "pdf",
+      "priority": 7,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "formal",
+        "tags": ["alimentos_estandar", "estructura_base", "conflicto_claro", "prueba_concreta", "componente_habitacional"],
+        "preferred_tags": ["incumplimiento", "cuota_provisoria"],
+        "excluded_tags": ["ascendientes", "hijo_mayor_estudiante"]
+      },
+      "style_profile": {
+        "tone": "litigation_clear",
+        "structure": ["hechos_decisivos", "necesidades_concretas", "prueba_inmediata"],
+        "argument_density": "standard",
+        "facts_style": "concrete",
+        "petitum_style": "progressive",
+        "opening_line": "La pieza debe mostrar desde el inicio el conflicto alimentario, las necesidades concretas y la razon por la cual la cuota pedida requiere respuesta judicial.",
+        "analysis_directive": "Relacionar norma, incumplimiento, necesidades y capacidad contributiva sin afirmaciones abstractas.",
+        "facts_directive": "Narrar hechos utiles para cuantificar y sostener el componente habitacional cuando exista base factica.",
+        "petitum_directive": "El petitum debe escalar desde la fijacion de cuota hacia medidas de aseguramiento solo si el soporte ya aparece identificado.",
+        "section_cues": ["Desagregar gastos concretos.", "Mostrar conflicto y soporte probatorio en paralelo."]
+      },
+      "argument_strategy": {
+        "focus": "damage",
+        "risk_tolerance": "medium",
+        "proof_priority": ["documental", "informativa"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo base fuerte para alimentos contra progenitor."
+    },
+    {
+      "model_id": "alimentos_vulnerabilidad_laura",
+      "name": "Alimentos con vulnerabilidad y violencia",
+      "source_path": "backend/data/writing_models/alimentos/002 - ALIMENTOS - LAURA.pdf",
+      "source_type": "pdf",
+      "priority": 8,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "formal",
+        "tags": ["vulnerabilidad", "violencia", "hechos_sensibles"],
+        "preferred_tags": ["proteccion_reforzada", "vulnerabilidad"],
+        "excluded_tags": ["ascendientes"]
+      },
+      "style_profile": {
+        "tone": "institutional_protective",
+        "structure": ["hechos_sensibles", "riesgo_procesal", "cobertura_minima"],
+        "argument_density": "standard",
+        "facts_style": "sensitive",
+        "petitum_style": "protective",
+        "opening_line": "La pieza debe mantener tono institucional, explicitar vulnerabilidad relevante y preservar claridad litigiosa.",
+        "analysis_directive": "Justificar tutela reforzada sin sobredimensionar hechos no acreditados.",
+        "facts_directive": "Exponer hechos sensibles con lenguaje sobrio y solo en la medida necesaria para justificar proteccion reforzada.",
+        "petitum_directive": "El cierre debe priorizar cobertura minima efectiva, acceso a justicia y medidas compatibles con la prueba disponible.",
+        "section_cues": ["Evitar dramatizacion.", "Conectar vulnerabilidad con medidas concretas."]
+      },
+      "argument_strategy": {
+        "focus": "damage",
+        "risk_tolerance": "low",
+        "proof_priority": ["documental", "informativa", "testimonial"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo fuerte para alimentos en contexto de violencia o vulnerabilidad."
+    },
+    {
+      "model_id": "alimentos_hijo_mayor_martinez",
+      "name": "Alimentos para hijo mayor estudiante",
+      "source_path": "backend/data/writing_models/alimentos/003 - ALIMENTOS - MARTINEZ.pdf",
+      "source_type": "pdf",
+      "priority": 9,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "formal",
+        "tags": ["hijo_mayor_estudiante", "art_663_ccyc", "regularidad_academica", "continuidad_de_asistencia"],
+        "preferred_tags": ["hijo_mayor_estudiante", "regularidad_academica"],
+        "excluded_tags": ["ascendientes"]
+      },
+      "style_profile": {
+        "tone": "technical_focused",
+        "structure": ["encuadre_especifico", "regularidad_academica", "continuidad_de_asistencia"],
+        "argument_density": "high",
+        "facts_style": "chronological",
+        "petitum_style": "specific",
+        "opening_line": "La pieza debe diferenciar expresamente este supuesto del esquema alimentario estandar y sostener el encuadre especifico aplicable.",
+        "analysis_directive": "Dar densidad al art. 663 CCyC y a la relacion entre estudio, regularidad y necesidad alimentaria.",
+        "facts_directive": "Ordenar cronologia academica y soporte documental de regularidad sin mezclarla con rubros ajenos.",
+        "petitum_directive": "El petitum debe pedir continuidad de asistencia y cobertura compatible con el supuesto especial acreditado.",
+        "section_cues": ["Nombrar regularidad academica.", "Separar este caso del esquema estandar."]
+      },
+      "argument_strategy": {
+        "focus": "formalism",
+        "risk_tolerance": "low",
+        "proof_priority": ["documental"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo de referencia para alimentos a hijo mayor estudiante."
+    },
+    {
+      "model_id": "alimentos_mixto_martinezz",
+      "name": "Caso mixto hijos y conyuge",
+      "source_path": "backend/data/writing_models/alimentos/004 - ALIMENTOS - MARTINEZZ.pdf",
+      "source_type": "pdf",
+      "priority": 6,
+      "rating": 4,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "memorial",
+        "tags": ["caso_mixto", "alimentos_conyuge", "orden_de_pretensiones"],
+        "preferred_tags": ["caso_mixto"],
+        "excluded_tags": []
+      },
+      "style_profile": {
+        "tone": "technical_ordered",
+        "structure": ["separacion_de_rubros", "orden_de_pretensiones"],
+        "argument_density": "high",
+        "facts_style": "segmented",
+        "petitum_style": "segmented",
+        "opening_line": "La pieza debe separar con nitidez rubros, destinatarios y fundamentos para evitar solapamientos.",
+        "analysis_directive": "Mantener compartimentos argumentales por pretension y por respaldo probatorio.",
+        "facts_directive": "Presentar hechos por bloque de pretension, evitando mezclar bases de alimentos de hijos con rubros de conyuge.",
+        "petitum_directive": "El petitum debe listar pretensiones por rubro y por beneficiario, con orden claro y sin duplicaciones.",
+        "section_cues": ["Separar rubros.", "Evitar montos mezclados."]
+      },
+      "argument_strategy": {
+        "focus": "formalism",
+        "risk_tolerance": "medium",
+        "proof_priority": ["documental", "pericial"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo util para casos mixtos."
+    },
+    {
+      "model_id": "alimentos_vulnerabilidad_nuin",
+      "name": "Vulnerabilidad economica y defensoria",
+      "source_path": "backend/data/writing_models/alimentos/005 - ALIMENTOS - NUIN.pdf",
+      "source_type": "pdf",
+      "priority": 8,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "base_argumental",
+        "tags": ["vulnerabilidad", "bajos_recursos", "defensoria", "anses_auh_cbu", "smvm_como_parametro"],
+        "preferred_tags": ["bajos_recursos", "justicia_gratuita"],
+        "excluded_tags": []
+      },
+      "style_profile": {
+        "tone": "institutional_protective",
+        "structure": ["acceso_a_justicia", "cobertura_minima", "soportes_operativos"],
+        "argument_density": "standard",
+        "facts_style": "concrete",
+        "petitum_style": "protective",
+        "opening_line": "La pieza debe traducir vulnerabilidad economica en necesidades concretas, acceso a justicia y mecanismos operativos verificables.",
+        "analysis_directive": "Usar referencias como SMVM, ANSES, AUH o CBU solo cuando el caso ya aporta soporte para ellas.",
+        "facts_directive": "Fijar hechos economicos concretos y no generalidades sobre precariedad.",
+        "petitum_directive": "El cierre debe pedir soluciones practicables y compatibles con justicia gratuita o tutela reforzada si el caso lo justifica.",
+        "section_cues": ["Referencias operativas solo con soporte.", "Mantener tono institucional."]
+      },
+      "argument_strategy": {
+        "focus": "damage",
+        "risk_tolerance": "low",
+        "proof_priority": ["documental", "informativa"],
+        "normative_anchor": "light"
+      },
+      "notes": "Modelo fuerte para vulnerabilidad economica."
+    },
+    {
+      "model_id": "alimentos_denso_perez",
+      "name": "Alimentos con densidad argumental",
+      "source_path": "backend/data/writing_models/alimentos/006 - ALIMENTOS - PEREZ.pdf",
+      "source_type": "pdf",
+      "priority": 7,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "formal",
+        "tags": ["densidad_argumental", "medidas_previas", "derechos_humanos"],
+        "preferred_tags": ["medidas_previas"],
+        "excluded_tags": ["hijo_mayor_estudiante"]
+      },
+      "style_profile": {
+        "tone": "technical_robust",
+        "structure": ["justificacion_procesal", "medidas_previas", "sustento_normativo"],
+        "argument_density": "high",
+        "facts_style": "concrete",
+        "petitum_style": "progressive",
+        "opening_line": "La pieza debe ganar densidad argumental sin perder prudencia ni trazabilidad entre norma, hechos y pedido.",
+        "analysis_directive": "Robustecer fundamento procesal y normativo solo en la medida en que el conflicto y la prueba lo permitan.",
+        "facts_directive": "Usar hechos concretos para sostener medidas previas y evitar afirmaciones vacias.",
+        "petitum_directive": "El petitum puede ser mas robusto, pero solo si cada medida pedida aparece respaldada en el desarrollo previo.",
+        "section_cues": ["Aumentar densidad sin perder claridad.", "Fundar medidas previas con soporte."]
+      },
+      "argument_strategy": {
+        "focus": "formalism",
+        "risk_tolerance": "medium",
+        "proof_priority": ["documental", "informativa"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo fuerte para alimentos estandar con buena densidad litigante."
+    },
+    {
+      "model_id": "alimentos_urgencia_nieva",
+      "name": "Urgencia real con medidas fuertes",
+      "source_path": "backend/data/writing_models/alimentos/007 - ALIMENTOS NIEVA.pdf",
+      "source_type": "pdf",
+      "priority": 10,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "incidente",
+        "tags": ["urgencia", "medidas_fuertes", "embargo", "habilitacion_dia_y_hora", "pase_a_feria"],
+        "preferred_tags": ["urgencia", "cuota_provisoria"],
+        "excluded_tags": ["sin_urgencia_acreditada"]
+      },
+      "style_profile": {
+        "tone": "urgent_prudent",
+        "structure": ["urgencia_real", "medidas_inmediatas", "respaldo_probatorio"],
+        "argument_density": "focused",
+        "facts_style": "urgent_concrete",
+        "petitum_style": "urgent_escalated",
+        "opening_line": "La pieza debe transmitir urgencia real con lenguaje firme pero prudente y sin pedir mas de lo que el cuadro factico permite.",
+        "analysis_directive": "Vincular urgencia, daño actual y respaldo inmediato antes de postular medidas intensas.",
+        "facts_directive": "Destacar hechos actuales que justifican tutela urgente, sin extrapolaciones.",
+        "petitum_directive": "Escalar medidas urgentes solo cuando aparezcan hechos y riesgo inmediato suficientemente descriptos.",
+        "section_cues": ["No automatizar medidas fuertes.", "Justificar embargo o feria solo con soporte."]
+      },
+      "argument_strategy": {
+        "focus": "urgency",
+        "risk_tolerance": "medium",
+        "proof_priority": ["documental", "informativa", "testimonial"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo de urgencia real; uso prudente."
+    },
+    {
+      "model_id": "alimentos_ascendientes_ramirez",
+      "name": "Reclamo contra ascendientes",
+      "source_path": "backend/data/writing_models/alimentos/008 - ALIMENTOS RAMIREZ.pdf",
+      "source_type": "pdf",
+      "priority": 9,
+      "rating": 5,
+      "applicability": {
+        "jurisdiction": "jujuy",
+        "forum": "familia",
+        "action_slug": "alimentos_hijos",
+        "document_kind": "memorial",
+        "tags": ["ascendientes", "obligacion_subsidiaria", "subsidiariedad", "insuficiencia_del_obligado_principal"],
+        "preferred_tags": ["ascendientes", "subsidiariedad"],
+        "excluded_tags": []
+      },
+      "style_profile": {
+        "tone": "technical_focused",
+        "structure": ["subsidiariedad", "base_normativa_cerrada", "prueba_del_obligado_principal"],
+        "argument_density": "high",
+        "facts_style": "focused",
+        "petitum_style": "subsidiary_clear",
+        "opening_line": "La pieza debe explicar desde el inicio el caracter subsidiario del reclamo y por que no alcanza la obligacion principal.",
+        "analysis_directive": "Cerrar el fundamento normativo y la prueba de insuficiencia del obligado principal antes de expandir el pedido.",
+        "facts_directive": "Delimitar hechos que acrediten insuficiencia o imposibilidad del obligado principal.",
+        "petitum_directive": "El petitum debe mostrar con claridad el caracter subsidiario del reclamo y la eventual necesidad de litisexpensas solo si el caso las soporta.",
+        "section_cues": ["Explicar subsidiariedad.", "No mezclar reclamo principal con subsidiario."]
+      },
+      "argument_strategy": {
+        "focus": "formalism",
+        "risk_tolerance": "low",
+        "proof_priority": ["documental"],
+        "normative_anchor": "strong"
+      },
+      "notes": "Modelo principal para reclamos contra ascendientes."
+    }
+  ]
+}

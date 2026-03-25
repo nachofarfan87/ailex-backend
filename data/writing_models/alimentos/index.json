@@ -1,0 +1,74 @@
+[
+  {
+    "id": "001",
+    "filename": "001 - ALIMENTOS - BELASQUEZ.pdf",
+    "original_filename": "001 - ALIMENTOS - BELASQUEZ.pdf",
+    "rating": 5,
+    "category": ["alimentos_estandar", "componente_habitacional"],
+    "use_for": ["estructura_base", "conflicto_claro", "vivienda_como_alimentos", "prueba_concreta"],
+    "notes": "Modelo base fuerte para alimentos contra progenitor. Sirve para ordenar conflicto, necesidades concretas y vivienda o alquiler como componente alimentario."
+  },
+  {
+    "id": "005",
+    "filename": "002 - ALIMENTOS - LAURA.pdf",
+    "original_filename": "002 - ALIMENTOS - LAURA.pdf",
+    "rating": 5,
+    "category": ["alimentos_estandar", "vulnerabilidad", "violencia"],
+    "use_for": ["estructura_base", "proteccion_reforzada", "vulnerabilidad", "hechos_sensibles"],
+    "notes": "Modelo fuerte para alimentos en contexto de violencia o vulnerabilidad. Aporta tono institucional y justificacion de tutela reforzada sin perder foco litigioso."
+  },
+  {
+    "id": "006",
+    "filename": "003 - ALIMENTOS - MARTINEZ.pdf",
+    "original_filename": "003 - ALIMENTOS - MARTINEZ.pdf",
+    "rating": 5,
+    "category": ["hijo_mayor_estudiante"],
+    "use_for": ["art_663_ccyc", "regularidad_academica", "continuidad_de_asistencia"],
+    "notes": "Modelo de referencia para alimentos a hijo mayor estudiante. Permite diferenciar el caso del esquema estandar y sostener art. 663 CCyC con prueba academica util."
+  },
+  {
+    "id": "007",
+    "filename": "004 - ALIMENTOS - MARTINEZZ.pdf",
+    "original_filename": "004 - ALIMENTOS - MARTINEZZ.pdf",
+    "rating": 4,
+    "category": ["caso_mixto", "alimentos_hijos", "alimentos_conyuge"],
+    "use_for": ["separacion_de_rubros", "orden_de_pretensiones", "estructura_mixta"],
+    "notes": "Modelo util para casos mixtos de hijos y conyuge. Su aporte principal es separar rubros, montos y fundamentos para evitar solapamientos."
+  },
+  {
+    "id": "008",
+    "filename": "005 - ALIMENTOS - NUIN.pdf",
+    "original_filename": "005 - ALIMENTOS - NUIN.pdf",
+    "rating": 5,
+    "category": ["vulnerabilidad", "bajos_recursos", "defensoria"],
+    "use_for": ["justicia_gratuita", "anses_auh_cbu", "smvm_como_parametro", "proteccion_reforzada"],
+    "notes": "Modelo fuerte para vulnerabilidad economica y patrocinio institucional. Es especialmente util cuando el caso exige justicia gratuita, referencias operativas a ANSES o AUH y un tono de proteccion reforzada."
+  },
+  {
+    "id": "010",
+    "filename": "006 - ALIMENTOS - PEREZ.pdf",
+    "original_filename": "006 - ALIMENTOS - PEREZ.pdf",
+    "rating": 5,
+    "category": ["alimentos_estandar", "medidas_previas", "densidad_argumental"],
+    "use_for": ["estructura_base", "justificacion_procesal", "derechos_humanos", "medidas_previas"],
+    "notes": "Modelo fuerte para alimentos estandar con muy buena densidad litigante. Sirve para justificar procesalmente el reclamo y robustecer medidas previas sin caer en generalidades."
+  },
+  {
+    "id": "014",
+    "filename": "007 - ALIMENTOS NIEVA.pdf",
+    "original_filename": "007 - ALIMENTOS NIEVA.pdf",
+    "rating": 5,
+    "category": ["urgencia", "medidas_fuertes"],
+    "use_for": ["embargo", "habilitacion_dia_y_hora", "pase_a_feria", "tono_urgente"],
+    "notes": "Modelo de urgencia real. Debe usarse solo cuando el cuadro factico justifica medidas fuertes como embargo, habilitacion de dia y hora o pase a feria."
+  },
+  {
+    "id": "015",
+    "filename": "008 - ALIMENTOS RAMIREZ.pdf",
+    "original_filename": "008 - ALIMENTOS RAMIREZ.pdf",
+    "rating": 5,
+    "category": ["ascendientes", "obligacion_subsidiaria"],
+    "use_for": ["subsidiariedad", "insuficiencia_del_obligado_principal", "litisexpensas", "fundamento_normativo_solido"],
+    "notes": "Modelo principal para reclamos contra ascendientes. Aporta una explicacion clara de la subsidiariedad, la insuficiencia del obligado principal y la posibilidad de litisexpensas."
+  }
+]

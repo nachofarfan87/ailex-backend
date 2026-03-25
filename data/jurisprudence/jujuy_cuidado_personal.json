@@ -1,0 +1,100 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "editorial_line": "jujuy_local",
+    "source_name": "poder_judicial_jujuy",
+    "verification_status": "verified",
+    "curation_status": "approved",
+    "verified_at": "2026-03-17",
+    "verified_by": "codex",
+    "curated_by": "codex",
+    "source_reference": "fallos_curados_cuidado_personal",
+    "territorial_priority": "alta",
+    "local_practice_value": "alta",
+    "court_level": "primera_instancia",
+    "redundancy_group": "cuidado_personal_jujuy",
+    "practical_frequency": "alta",
+    "local_topic_cluster": "cuidado_personal_jujuy"
+  },
+  "precedents": [
+    {
+      "id": "jujuy-cuidado-personal-llampa-2025",
+      "topic": "cuidado_personal",
+      "subtopic": "modalidad_compartida_indistinta",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Tribunal de Familia - Sala I - Vocalia 1",
+      "year": 2025,
+      "date": "2025-04-08",
+      "case_name": "Llampa c/ Condori s/ cuidado personal de hijo",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:017 - LLAMPA.pdf",
+      "legal_issue": "Determinacion de la modalidad de cuidado personal cuando un progenitor pide alternancia y la relacion parental presenta conflictividad y escasa cooperacion.",
+      "applied_articles": [
+        "CCyC 648",
+        "CCyC 650",
+        "CCyC 651",
+        "CCyC 652"
+      ],
+      "criterion": "El cuidado compartido alternado exige cooperacion parental suficiente; si el conflicto impide una coparentalidad funcional, corresponde preferir la modalidad indistinta con centro de vida estable.",
+      "strategic_use": "Sirve para oponerse a pedidos de alternancia rigida cuando la prueba muestra mala comunicacion parental y aconseja sostener estabilidad cotidiana y centro de vida del nino.",
+      "full_text": "La sentencia analiza una situacion familiar conflictiva y destaca que la coparentalidad no se reduce a una division matematica del tiempo. Afirma que compartir decisiones sobre salud, alimentacion y vida cotidiana requiere comunicacion fluida entre los progenitores y condiciones relativamente equivalentes en ambos hogares. Concluye que, ante la ausencia total de interaccion entre los adultos, no corresponde el cuidado alternado y debe fijarse cuidado compartido indistinto con centro de vida en el domicilio materno, complementado con un regimen comunicacional progresivo y seguimiento terapeutico.",
+      "keywords": [
+        "cuidado personal",
+        "coparentalidad",
+        "modalidad indistinta",
+        "centro de vida",
+        "interes superior"
+      ],
+      "confidence": 0.92,
+      "action_slug": "cuidado_personal",
+      "facts_summary": "El progenitor solicito cuidado compartido alternado, pero el expediente mostro conflictividad alta, ausencia de comunicacion eficaz y necesidad de resguardar estabilidad del hijo.",
+      "decision_summary": "Se rechazo la alternancia y se establecio cuidado compartido indistinto con centro de vida en el domicilio materno y regimen comunicacional progresivo a favor del padre.",
+      "key_reasoning": "La coparentalidad exige cooperacion real y no solo distribucion temporal; sin comunicacion funcional el esquema alternado resulta inadecuado para el interes superior del nino.",
+      "holding": "Corresponde preferir el cuidado compartido indistinto cuando la conflictividad parental impide una coparentalidad sana y el centro de vida del nino aconseja estabilidad habitacional.",
+      "outcome": "Se fijo cuidado compartido indistinto con centro de vida materno y visitas progresivas.",
+      "document_type": "sentencia",
+      "procedural_stage": "primera_instancia"
+    },
+    {
+      "id": "jujuy-cuidado-personal-rocha-2025",
+      "topic": "cuidado_personal",
+      "subtopic": "centro_de_vida_con_progenitor_paterno",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Juzgado de Primera Instancia de Familia - Perico",
+      "year": 2025,
+      "date": "2025-09-29",
+      "case_name": "Rocha c/ Ortega s/ cuidado personal de hijos",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:019 - ROCHA.pdf",
+      "legal_issue": "Procedencia del pedido unilateral de cuidado personal cuando la escucha de la nina y la prueba ambiental muestran consolidacion del centro de vida con el otro progenitor.",
+      "applied_articles": [
+        "CCyC 650",
+        "CCyC 651",
+        "CCyC 654"
+      ],
+      "criterion": "Aun frente a un pedido unilateral, debe privilegiarse el cuidado compartido indistinto si la prueba demuestra que el centro de vida actual con un progenitor satisface mejor el interes superior.",
+      "strategic_use": "Sirve para sostener que la solucion no debe seguir la etiqueta de la demanda sino la modalidad que mejor preserve estabilidad, escucha del hijo y continuidad del cuidado efectivo.",
+      "full_text": "La resolucion recuerda que la regla general en materia de cuidado personal es el cuidado compartido, preferentemente en modalidad indistinta, salvo circunstancias excepcionales que justifiquen unilateralidad. A partir de la audiencia de escucha y del informe socioambiental, concluye que la nina reside de manera estable con su padre, donde se encuentran adecuadamente atendidas sus necesidades emocionales, fisicas y educativas, sin cortar el vinculo con la madre. Por ello rechaza el pedido de cuidado unilateral y otorga cuidado compartido indistinto con centro de vida en el domicilio paterno.",
+      "keywords": [
+        "cuidado compartido",
+        "modalidad indistinta",
+        "centro de vida",
+        "audiencia de escucha",
+        "interes superior"
+      ],
+      "confidence": 0.91,
+      "action_slug": "cuidado_personal",
+      "facts_summary": "El padre pidio cuidado unilateral, pero la prueba revelo convivencia consolidada de la hija con el progenitor, escucha favorable y mantenimiento del vinculo materno.",
+      "decision_summary": "Se rechazo la unilateralidad y se otorgo cuidado compartido indistinto con centro de vida en el domicilio paterno.",
+      "key_reasoning": "La modalidad indistinta sigue siendo la regla y puede coexistir con un centro de vida definido cuando ello protege estabilidad y vinculos parentales.",
+      "holding": "Si el centro de vida efectivo del hijo esta consolidado con uno de los progenitores, corresponde mantenerlo dentro de un cuidado compartido indistinto cuando esa solucion resguarda mejor su interes superior.",
+      "outcome": "Se otorgo cuidado compartido indistinto con centro de vida paterno.",
+      "document_type": "sentencia",
+      "procedural_stage": "primera_instancia"
+    }
+  ]
+}

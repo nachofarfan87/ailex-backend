@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "dataset_label": "CSJN",
+    "jurisdiction_scope": "nacional",
+    "status": "empty_curated_slot",
+    "description": "Reservado para fallos reales verificados de la Corte Suprema de Justicia de la Nacion. Este commit no incorpora fallos reales por prudencia de verificabilidad."
+  },
+  "cases": []
+}

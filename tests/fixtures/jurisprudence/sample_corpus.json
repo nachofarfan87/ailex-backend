@@ -1,0 +1,166 @@
+{
+  "_meta": {
+    "dataset_kind": "fixture",
+    "description": "Corpus de ejemplo para tests. NO es base jurisprudencial real de produccion.",
+    "purpose": "fixture_de_desarrollo",
+    "created_for": "test_jurisprudence_engine.py"
+  },
+  "cases": [
+    {
+      "case_id": "sample-divorcio-001",
+      "source": "sample_test_corpus",
+      "source_url": "fixture://sample-divorcio-001",
+      "court": "Camara de Apelaciones de Familia de Jujuy",
+      "chamber": "Sala II",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "year": 2023,
+      "date": "2023-08-14",
+      "case_name": "M. A. c/ R. P. s/ divorcio",
+      "facts_summary": "Disolucion del vinculo con discusion posterior sobre efectos accesorios personales y patrimoniales.",
+      "decision_summary": "Se confirmo la disolucion del vinculo y se ordeno diferir el tratamiento de algunos efectos accesorios hasta contar con mayor precision factica.",
+      "legal_issue": "Divorcio incausado con discusion sobre efectos accesorios y suficiencia de la presentacion inicial.",
+      "key_reasoning": "La voluntad de divorciarse mantiene centralidad aun cuando los efectos accesorios requieran desarrollo posterior.",
+      "holding": "La voluntad de divorciarse basta para la disolucion del vinculo, sin perjuicio del tratamiento posterior de efectos personales y patrimoniales.",
+      "outcome": "Se confirma el divorcio y se difieren cuestiones accesorias.",
+      "topics": [
+        "divorcio",
+        "familia",
+        "efectos accesorios"
+      ],
+      "keywords": [
+        "divorcio",
+        "divorcio incausado",
+        "efectos accesorios",
+        "propuesta reguladora"
+      ],
+      "applied_articles": [
+        "CCyC 437",
+        "CCyC 438"
+      ],
+      "procedural_stage": "apelacion",
+      "document_type": "sentencia",
+      "action_slug": "divorcio",
+      "strategic_value": "Util para sostener que la disolucion puede avanzar aunque los efectos accesorios requieran tratamiento ulterior y mejor delimitacion factica.",
+      "dataset_kind": "fixture"
+    },
+    {
+      "case_id": "sample-alimentos-001",
+      "source": "sample_test_corpus",
+      "source_url": "fixture://sample-alimentos-001",
+      "court": "Juzgado de Familia de San Salvador de Jujuy",
+      "chamber": "",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "year": 2024,
+      "date": "2024-03-22",
+      "case_name": "G. L. c/ T. R. s/ alimentos",
+      "facts_summary": "Incumplimiento alimentario respecto de hijo menor con gastos acreditados de salud y escolaridad.",
+      "decision_summary": "Se fijo cuota provisoria a favor de un hijo menor con base en gastos acreditados y capacidad economica presumida del obligado.",
+      "legal_issue": "Alimentos de hijos, prueba de gastos regulares y suficiencia de acreditacion economica del alimentante.",
+      "key_reasoning": "Los gastos del hijo y la ausencia de aportes suficientes justifican tutela urgente.",
+      "holding": "La existencia de gastos regulares del hijo y la insuficiencia de aportes previos justifican una cuota provisoria aun con informacion economica incompleta.",
+      "outcome": "Se fija cuota alimentaria provisoria.",
+      "topics": [
+        "alimentos",
+        "familia",
+        "hijo menor"
+      ],
+      "keywords": [
+        "alimentos",
+        "hijo menor",
+        "cuota provisoria",
+        "gastos acreditados"
+      ],
+      "applied_articles": [
+        "CCyC 658",
+        "CCyC 659"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia_interlocutoria",
+      "action_slug": "alimentos_hijos",
+      "strategic_value": "Util para pedidos urgentes de cuota provisoria cuando el actor acredita gastos del hijo pero la informacion patrimonial del demandado aun es parcial.",
+      "dataset_kind": "fixture"
+    },
+    {
+      "case_id": "sample-sucesion-001",
+      "source": "sample_test_corpus",
+      "source_url": "fixture://sample-sucesion-001",
+      "court": "Juzgado Civil y Comercial de San Salvador de Jujuy",
+      "chamber": "",
+      "jurisdiction": "jujuy",
+      "forum": "civil",
+      "year": 2023,
+      "date": "2023-11-07",
+      "case_name": "P. R. J. s/ sucesion ab intestato",
+      "facts_summary": "Inicio sucesorio con partidas, identificacion de herederos forzosos y ultimo domicilio del causante en la jurisdiccion.",
+      "decision_summary": "Se dicto declaratoria de herederos a favor de los hijos del causante tras acreditarse fallecimiento, vinculo filial y ultimo domicilio en la jurisdiccion.",
+      "legal_issue": "Apertura y tramite de sucesion ab intestato, acreditacion de vocacion hereditaria y competencia territorial.",
+      "key_reasoning": "La suficiencia documental inicial permite avanzar sin incidentes previos.",
+      "holding": "La presentacion ordenada de partidas, ultimo domicilio y denuncia de bienes permite avanzar a la declaratoria sin incidentes previos.",
+      "outcome": "Se dicta declaratoria de herederos.",
+      "topics": [
+        "sucesiones",
+        "declaratoria de herederos",
+        "competencia territorial"
+      ],
+      "keywords": [
+        "sucesion",
+        "sucesion ab intestato",
+        "declaratoria de herederos",
+        "vocacion hereditaria",
+        "ultimo domicilio"
+      ],
+      "applied_articles": [
+        "CCyC 2277",
+        "CCyC 2340",
+        "CCyC 2337"
+      ],
+      "procedural_stage": "primera_instancia",
+      "document_type": "sentencia",
+      "action_slug": "sucesion_ab_intestato",
+      "strategic_value": "Util para estructurar aperturas sucesorias con foco en partidas, ultimo domicilio y vocacion hereditaria sin incidentes iniciales.",
+      "dataset_kind": "fixture"
+    },
+    {
+      "case_id": "sample-divorcio-unilateral-001",
+      "source": "sample_test_corpus",
+      "source_url": "fixture://sample-divorcio-unilateral-001",
+      "court": "Camara de Apelaciones de Familia de Jujuy",
+      "chamber": "Sala I",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "year": 2024,
+      "date": "2024-01-18",
+      "case_name": "V. S. c/ D. M. s/ divorcio",
+      "facts_summary": "Pedido unilateral de divorcio con oposicion del demandado y debate sobre notificacion y propuesta reguladora.",
+      "decision_summary": "Se hizo lugar al divorcio unilateral pese a la oposicion del demandado, ordenandose continuar con la determinacion de efectos accesorios en etapa posterior.",
+      "legal_issue": "Divorcio unilateral sin acuerdo del otro conyuge, validez de la notificacion y suficiencia de la propuesta reguladora.",
+      "key_reasoning": "La oposicion del otro conyuge no bloquea la disolucion cuando existe voluntad inequivoca de divorciarse.",
+      "holding": "La oposicion del otro conyuge no obsta a la disolucion del vinculo matrimonial cuando la voluntad de divorciarse ha sido expresada de modo inequivoco.",
+      "outcome": "Se hace lugar al divorcio unilateral.",
+      "topics": [
+        "divorcio",
+        "familia",
+        "divorcio unilateral"
+      ],
+      "keywords": [
+        "divorcio",
+        "divorcio unilateral",
+        "oposicion del conyuge",
+        "notificacion",
+        "propuesta reguladora"
+      ],
+      "applied_articles": [
+        "CCyC 437",
+        "CCyC 438",
+        "CCyC 439"
+      ],
+      "procedural_stage": "apelacion",
+      "document_type": "sentencia",
+      "action_slug": "divorcio_unilateral",
+      "strategic_value": "Util para litigios en los que la oposicion del otro conyuge intenta bloquear la disolucion del vinculo pese a una voluntad clara de divorciarse.",
+      "dataset_kind": "fixture"
+    }
+  ]
+}

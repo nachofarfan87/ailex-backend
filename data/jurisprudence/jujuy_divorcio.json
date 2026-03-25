@@ -1,0 +1,102 @@
+{
+  "_meta": {
+    "dataset_kind": "real",
+    "editorial_line": "jujuy_local",
+    "source_name": "poder_judicial_jujuy",
+    "verification_status": "verified",
+    "curation_status": "approved",
+    "verified_at": "2026-03-17",
+    "verified_by": "codex",
+    "curated_by": "codex",
+    "source_reference": "fallos_curados_divorcio",
+    "territorial_priority": "alta",
+    "local_practice_value": "alta",
+    "court_level": "primera_instancia",
+    "redundancy_group": "divorcio_jujuy",
+    "practical_frequency": "alta",
+    "local_topic_cluster": "divorcio_jujuy"
+  },
+  "precedents": [
+    {
+      "id": "jujuy-divorcio-d41527-2025",
+      "topic": "divorcio",
+      "subtopic": "divorcio_unilateral_con_efectos_parcialmente_acordados",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Tribunal de Familia - Sala III - Vocalia 7",
+      "year": 2025,
+      "date": "2025-09-16",
+      "case_name": "S. c/ M. s/ divorcio",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:023 - D-41527_2022.pdf",
+      "legal_issue": "Procedencia del divorcio unilateral con acuerdo parcial sobre efectos y controversia remanente sobre cuidado personal.",
+      "applied_articles": [
+        "CCyC 437",
+        "CCyC 438",
+        "CCyC 475",
+        "CCyC 480"
+      ],
+      "criterion": "El divorcio debe decretarse cuando se cumplen los recaudos de los articulos 437 y 438, aunque subsistan desacuerdos parciales sobre efectos parentales o patrimoniales.",
+      "strategic_use": "Sirve para pedir sentencia de divorcio aun cuando solo exista acuerdo parcial sobre efectos, reservando los puntos controvertidos para tramite especifico posterior.",
+      "full_text": "La sentencia describe una demanda de divorcio unilateral en la que luego de la audiencia las partes coincidieron en divorcio, alimentos y regimen comunicacional, quedando sin acuerdo el cuidado personal. El tribunal enfatiza que, cumplidos los recaudos de los articulos 437 y 438 del Codigo Civil y Comercial, corresponde decretar el divorcio y declarar extinguida la comunidad, mientras los aspectos complementarios pueden tratarse por las vias correspondientes. La decision tuvo presente el convenio alcanzado en algunos efectos y no condiciono el dictado del divorcio a la resolucion total de las cuestiones parentales.",
+      "keywords": [
+        "divorcio",
+        "divorcio unilateral",
+        "acuerdo parcial",
+        "efectos accesorios",
+        "comunidad conyugal"
+      ],
+      "confidence": 0.92,
+      "action_slug": "divorcio_unilateral",
+      "facts_summary": "Hubo demanda unilateral, posterior comparecencia de la demandada y acuerdo parcial sobre divorcio, alimentos y regimen comunicacional, sin consenso pleno sobre cuidado personal.",
+      "decision_summary": "Se decreto el divorcio y se extinguio la comunidad, manteniendo separados los efectos no totalmente resueltos.",
+      "key_reasoning": "El divorcio no depende de la solucion integral de todos los efectos si ya se verifica voluntad de ruptura y propuesta reguladora suficiente para habilitar el tramite.",
+      "holding": "Cumplidos los recaudos formales del divorcio unilateral, el juzgado debe decretarlo aunque algunos efectos familiares requieran tratamiento separado.",
+      "outcome": "Se hizo lugar al divorcio y se extinguio la comunidad conyugal.",
+      "document_type": "sentencia",
+      "procedural_stage": "primera_instancia"
+    },
+    {
+      "id": "jujuy-divorcio-d38870-2025",
+      "topic": "divorcio",
+      "subtopic": "divorcio_unilateral_sin_respuesta_a_propuesta_reguladora",
+      "jurisdiction": "jujuy",
+      "forum": "familia",
+      "court": "Tribunal de Familia - Sala III - Vocalia 7",
+      "year": 2025,
+      "date": "2025-09-16",
+      "case_name": "G. c/ R. s/ divorcio",
+      "source_type": "sentencia_judicial",
+      "source": "poder_judicial_jujuy",
+      "source_url": "ref:024 - D-38870_2021.pdf",
+      "legal_issue": "Divorcio unilateral cuando la contraparte es notificada pero no formula propuesta reguladora ni comparece a discutir los efectos.",
+      "applied_articles": [
+        "CCyC 437",
+        "CCyC 438",
+        "CCyC 717",
+        "CCyC 475",
+        "CCyC 480"
+      ],
+      "criterion": "La falta de respuesta a la propuesta reguladora no impide decretar el divorcio; los desacuerdos o silencios sobre efectos deben canalizarse por incidencias separadas.",
+      "strategic_use": "Sirve para impulsar el divorcio frente a incomparecencia o silencio del otro conyuge, evitando que la ausencia de convenio homologable paralice la disolucion del vinculo.",
+      "full_text": "El tribunal destaca que el divorcio solicitado por uno solo de los conyuges se vincula con la autonomia personal y no puede quedar supeditado a la conformidad del otro. Senala que, si la persona demandada fue debidamente notificada y no emitio conformidad ni propuesta alternativa sobre el convenio regulador, ello no impide el dictado de la sentencia de divorcio. Agrega que las cuestiones del convenio regulador deben seguir por separado mediante sus respectivos procedimientos incidentales, mientras el divorcio y la extincion de la comunidad conyugal se decretan sin mas tramite.",
+      "keywords": [
+        "divorcio",
+        "divorcio unilateral",
+        "propuesta reguladora",
+        "incomparecencia",
+        "autonomia personal"
+      ],
+      "confidence": 0.93,
+      "action_slug": "divorcio_unilateral",
+      "facts_summary": "La demandada fue notificada del pedido de divorcio y de la propuesta reguladora, pero no comparecio ni presento alternativa en tiempo oportuno.",
+      "decision_summary": "Se decreto el divorcio y se remitieron las cuestiones del convenio regulador a procedimientos incidentales separados.",
+      "key_reasoning": "La intervencion judicial en el divorcio no puede invadir la autonomia personal ni supeditar la disolucion al acuerdo sobre todos los efectos.",
+      "holding": "La incomparecencia o falta de respuesta al convenio regulador no obsta al divorcio unilateral ni impide diferir los efectos para tramite separado.",
+      "outcome": "Se hizo lugar al divorcio y se ordeno tratar por separado las cuestiones del convenio regulador.",
+      "document_type": "sentencia",
+      "procedural_stage": "primera_instancia"
+    }
+  ]
+}
