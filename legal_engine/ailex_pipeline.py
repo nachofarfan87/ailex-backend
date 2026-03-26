@@ -16,6 +16,8 @@ from app.services.beta_observability_helpers import (
     extract_selected_model_fields,
 )
 from app.services.beta_observability_service import update_beta_observability_context
+from app.services import output_refinement_service
+from app.services import output_mode_service
 from legal_engine import (
     ActionClassifier,
     ArgumentGenerator,
@@ -86,7 +88,9 @@ class PipelineResult:
     case_profile: Dict[str, Any] = field(default_factory=dict)
     case_strategy: Dict[str, Any] = field(default_factory=dict)
     legal_strategy: Dict[str, Any] = field(default_factory=dict)
+    output_modes: Dict[str, Any] = field(default_factory=dict)
     generated_document: Optional[str] = None
+    quick_start: Optional[str] = None
 
     warnings: List[str] = field(default_factory=list)
     confidence: Optional[float] = None
@@ -649,37 +653,74 @@ class AilexPipeline:
             internal_warnings=self._dedupe_preserve_order(warnings),
         )
 
+        response_payload = {
+            "query": request.query,
+            "jurisdiction": resolved_jurisdiction,
+            "forum": resolved_forum,
+            "case_domain": case_domain,
+            "case_domains": case_domains,
+            "retrieved_items": self._normalize_list_of_dicts(retrieved_items),
+            "context": self._normalize_obj(context),
+            "classification": self._normalize_obj(classification),
+            "case_structure": self._normalize_obj(case_structure),
+            "reasoning": self._normalize_obj(reasoning),
+            "normative_reasoning": self._normalize_obj(normative_reasoning),
+            "citation_validation": self._normalize_obj(citation_validation),
+            "hallucination_guard": self._normalize_obj(hallucination_guard),
+            "procedural_strategy": self._normalize_obj(procedural_strategy),
+            "question_engine_result": self._normalize_obj(question_engine_result),
+            "case_theory": self._normalize_obj(case_theory),
+            "case_evaluation": self._normalize_obj(case_evaluation),
+            "conflict_evidence": self._normalize_obj(conflict_evidence),
+            "evidence_reasoning_links": self._normalize_obj(evidence_reasoning_links),
+            "jurisprudence_analysis": self._normalize_obj(jurisprudence_analysis),
+            "procedural_timeline": self._normalize_obj(procedural_timeline),
+            "procedural_case_state": self._normalize_obj(procedural_case_state),
+            "legal_decision": self._normalize_obj(legal_decision),
+            "model_match": self._normalize_obj(model_match),
+            "case_profile": self._normalize_obj(case_profile),
+            "case_strategy": self._normalize_obj(case_strategy),
+            "legal_strategy": self._normalize_obj(legal_strategy),
+            "generated_document": generated_document,
+            "warnings": self._filter_user_warnings(self._dedupe_preserve_order(warnings)),
+            "confidence": confidence,
+        }
+        response_payload = output_refinement_service.refine(response_payload)
+        response_payload = output_mode_service.build_dual_output(response_payload)
+
         return PipelineResult(
-            query=request.query,
-            jurisdiction=resolved_jurisdiction,
-            forum=resolved_forum,
-            case_domain=case_domain,
-            case_domains=case_domains,
-            retrieved_items=self._normalize_list_of_dicts(retrieved_items),
-            context=self._normalize_obj(context),
-            classification=self._normalize_obj(classification),
-            case_structure=self._normalize_obj(case_structure),
-            reasoning=self._normalize_obj(reasoning),
-            normative_reasoning=self._normalize_obj(normative_reasoning),
-            citation_validation=self._normalize_obj(citation_validation),
-            hallucination_guard=self._normalize_obj(hallucination_guard),
-            procedural_strategy=self._normalize_obj(procedural_strategy),
-            question_engine_result=self._normalize_obj(question_engine_result),
-            case_theory=self._normalize_obj(case_theory),
-            case_evaluation=self._normalize_obj(case_evaluation),
-            conflict_evidence=self._normalize_obj(conflict_evidence),
-            evidence_reasoning_links=self._normalize_obj(evidence_reasoning_links),
-            jurisprudence_analysis=self._normalize_obj(jurisprudence_analysis),
-            procedural_timeline=self._normalize_obj(procedural_timeline),
-            procedural_case_state=self._normalize_obj(procedural_case_state),
-            legal_decision=self._normalize_obj(legal_decision),
-            model_match=self._normalize_obj(model_match),
-            case_profile=self._normalize_obj(case_profile),
-            case_strategy=self._normalize_obj(case_strategy),
-            legal_strategy=self._normalize_obj(legal_strategy),
-            generated_document=generated_document,
-            warnings=self._filter_user_warnings(self._dedupe_preserve_order(warnings)),
-            confidence=confidence,
+            query=response_payload.get("query", request.query),
+            jurisdiction=response_payload.get("jurisdiction"),
+            forum=response_payload.get("forum"),
+            case_domain=response_payload.get("case_domain"),
+            case_domains=list(response_payload.get("case_domains") or []),
+            retrieved_items=self._normalize_list_of_dicts(response_payload.get("retrieved_items")),
+            context=self._normalize_obj(response_payload.get("context")),
+            classification=self._normalize_obj(response_payload.get("classification")),
+            case_structure=self._normalize_obj(response_payload.get("case_structure")),
+            reasoning=self._normalize_obj(response_payload.get("reasoning")),
+            normative_reasoning=self._normalize_obj(response_payload.get("normative_reasoning")),
+            citation_validation=self._normalize_obj(response_payload.get("citation_validation")),
+            hallucination_guard=self._normalize_obj(response_payload.get("hallucination_guard")),
+            procedural_strategy=self._normalize_obj(response_payload.get("procedural_strategy")),
+            question_engine_result=self._normalize_obj(response_payload.get("question_engine_result")),
+            case_theory=self._normalize_obj(response_payload.get("case_theory")),
+            case_evaluation=self._normalize_obj(response_payload.get("case_evaluation")),
+            conflict_evidence=self._normalize_obj(response_payload.get("conflict_evidence")),
+            evidence_reasoning_links=self._normalize_obj(response_payload.get("evidence_reasoning_links")),
+            jurisprudence_analysis=self._normalize_obj(response_payload.get("jurisprudence_analysis")),
+            procedural_timeline=self._normalize_obj(response_payload.get("procedural_timeline")),
+            procedural_case_state=self._normalize_obj(response_payload.get("procedural_case_state")),
+            legal_decision=self._normalize_obj(response_payload.get("legal_decision")),
+            model_match=self._normalize_obj(response_payload.get("model_match")),
+            case_profile=self._normalize_obj(response_payload.get("case_profile")),
+            case_strategy=self._normalize_obj(response_payload.get("case_strategy")),
+            legal_strategy=self._normalize_obj(response_payload.get("legal_strategy")),
+            output_modes=self._normalize_obj(response_payload.get("output_modes")),
+            generated_document=response_payload.get("generated_document"),
+            quick_start=response_payload.get("quick_start"),
+            warnings=list(response_payload.get("warnings") or []),
+            confidence=response_payload.get("confidence"),
         )
 
     # ------------------------------------------------------------------

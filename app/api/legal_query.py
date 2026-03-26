@@ -95,6 +95,7 @@ class LegalQueryResponse(BaseModel):
     case_profile: dict = Field(default_factory=dict)
     case_strategy: dict = Field(default_factory=dict)
     legal_strategy: dict = Field(default_factory=dict)
+    output_modes: dict[str, dict[str, Any]] = Field(default_factory=dict)
     generated_document: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     confidence: Optional[float] = None

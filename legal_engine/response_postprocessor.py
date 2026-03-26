@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
+
+_QUICK_START_PREFIX = "Primer paso recomendado:"
+_QUICK_START_SIMILARITY_THRESHOLD = 0.75
 
 _NOISE_PATTERNS = (
     "fallback generico",
@@ -30,6 +34,9 @@ class ResponsePostprocessor:
     ) -> FinalOutput:
         raw_response_text = self._build_response_text(pipeline_payload)
         response_text = self._sanitize_text(raw_response_text)
+        response_text = self._prepend_quick_start(
+            response_text, pipeline_payload.get("quick_start"),
+        )
         response_text = self._apply_prudence(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
@@ -116,6 +123,46 @@ class ResponsePostprocessor:
 
         parts = [part for part in (short_answer, applied_analysis, strategic_narrative) if part]
         return "\n\n".join(self._dedupe_lines(parts))
+
+    def _prepend_quick_start(self, response_text: str, quick_start: str | None) -> str:
+        """Insert quick_start at the beginning of response_text if not already present."""
+        qs = str(quick_start or "").strip()
+        if not qs:
+            return response_text
+
+        # Normalize: strip any repeated prefix occurrences, then add exactly one
+        qs_body = self._normalize_quick_start_prefix(qs)
+        qs = f"{_QUICK_START_PREFIX} {qs_body}".strip()
+        # Ensure trailing period
+        if qs and qs[-1] not in ".!?":
+            qs += "."
+
+        if not response_text.strip():
+            return qs
+
+        # Already present: starts with the prefix
+        first_line = response_text.split("\n")[0].strip()
+        if first_line.lower().startswith(_QUICK_START_PREFIX.lower()):
+            return response_text
+
+        # Semantic near-duplicate: first line is very similar to quick_start body
+        norm_first = re.sub(r"\s+", " ", first_line.lower())
+        norm_qs = re.sub(r"\s+", " ", qs_body.lower())
+        if norm_qs and SequenceMatcher(a=norm_first, b=norm_qs).ratio() >= _QUICK_START_SIMILARITY_THRESHOLD:
+            return response_text
+
+        return f"{qs}\n\n{response_text}"
+
+    @staticmethod
+    def _normalize_quick_start_prefix(text: str) -> str:
+        body = str(text or "").strip()
+        prefix_pattern = re.compile(rf"^(?:{re.escape(_QUICK_START_PREFIX)}\s*)+", re.IGNORECASE)
+        while True:
+            normalized = prefix_pattern.sub("", body, count=1).strip()
+            if normalized == body:
+                break
+            body = normalized
+        return body
 
     def _apply_prudence(
         self,
