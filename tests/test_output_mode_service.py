@@ -215,3 +215,805 @@ def test_user_mode_evitan_simplificacion_en_contexto_tecnico_sensible():
     assert "incompetencia manifiesta" in summary
     assert "competencia federal" in summary
     assert "que juzgado corresponde federal" not in summary
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Conversational layer tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_conversational_present_in_output():
+    result = output_mode_service.build_dual_output(_refined_response())
+
+    assert "conversational" in result
+    conv = result["conversational"]
+    assert isinstance(conv, dict)
+    assert "message" in conv
+    assert "question" in conv
+    assert "options" in conv
+    assert "missing_facts" in conv
+    assert "next_step" in conv
+
+
+def test_conversational_message_is_nonempty_for_valid_response():
+    result = output_mode_service.build_dual_output(_refined_response())
+
+    assert result["conversational"]["message"]
+    assert len(result["conversational"]["message"]) > 10
+
+
+def test_memory_phrase_enriquece_mensaje_con_facts_relevantes():
+    payload = _refined_response()
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_hijos": False,
+        "hay_bienes": False,
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    message = result["conversational"]["message"].lower()
+
+    assert "divorcio unilateral" in message
+    assert "sin hijos" in message
+    assert "no aparecen bienes relevantes" in message
+
+
+def test_memory_phrase_tambien_aparece_en_guided_response_si_sigue_en_clarification():
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Me demandan por alimentos"
+    payload["facts"] = {
+        "rol_procesal": "demandado",
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Verificar existencia de hijos menores a cargo.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    guided = (result["conversational"]["guided_response"] or "").lower()
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert "actuas como demandado" in guided
+    assert "hijos" in guided
+
+
+def test_memory_phrase_no_se_agrega_si_no_hay_facts():
+    result = output_mode_service.build_dual_output(_refined_response())
+    message = result["conversational"]["message"].lower()
+
+    assert "entonces estamos frente a" not in message
+
+
+def test_conversational_question_derived_from_missing_info():
+    payload = _refined_response()
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral"
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    conv = result["conversational"]
+
+    assert conv["question"]
+    assert "divorcio" in conv["question"].lower()
+
+
+def test_conversational_question_null_when_no_missing_info():
+    payload = _refined_response()
+    payload["case_strategy"]["critical_missing_information"] = []
+    payload["case_strategy"]["ordinary_missing_information"] = []
+    payload["case_strategy"]["critical_questions"] = []
+    payload["procedural_strategy"] = {"missing_information": []}
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["question"] is None
+
+
+def test_user_mode_switches_to_question_first_when_decisive_data_is_missing():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["confidence"] = 0.42
+    payload["case_strategy"]["critical_missing_information"] = []
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Definir la via procesal aplicable."
+    ]
+    payload["question_engine_result"] = {
+        "critical_questions": [
+            "¿El otro conyuge esta de acuerdo con divorciarse o la peticion debera tramitarse unilateralmente?"
+        ],
+        "questions": [
+            {
+                "question": "¿El otro conyuge esta de acuerdo con divorciarse o la peticion debera tramitarse unilateralmente?",
+                "purpose": "Definir la variante procesal del divorcio y evitar un encuadre incompleto.",
+                "priority": "alta",
+                "category": "variante_divorcio",
+            }
+        ],
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert result["output_modes"]["user"]["summary"].startswith("Para orientarte bien, primero necesito saber")
+    assert "cambia la estrategia y la presentacion inicial" in result["output_modes"]["user"]["summary"]
+    assert result["output_modes"]["user"]["quick_start"] == ""
+    assert len(result["output_modes"]["user"]["next_steps"]) == 1
+
+
+def test_user_mode_keeps_rich_output_when_case_is_sufficiently_defined():
+    payload = _refined_response()
+    payload["query"] = (
+        "Quiero divorciarme. Hay acuerdo, no hay hijos, ya tenemos propuesta reguladora "
+        "y conocemos el ultimo domicilio conyugal."
+    )
+    payload["facts"] = {
+        "hay_acuerdo": True,
+        "sin_hijos": True,
+        "propuesta_reguladora": True,
+    }
+    payload["question_engine_result"] = {
+        "critical_questions": [
+            "¿El otro conyuge esta de acuerdo con divorciarse o la peticion debera tramitarse unilateralmente?"
+        ]
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is False
+    assert result["output_modes"]["user"]["quick_start"].startswith("Primer paso recomendado:")
+
+
+def test_conversational_options_from_short_actions():
+    payload = _refined_response()
+    payload["case_strategy"]["recommended_actions"] = [
+        "Iniciar divorcio conjunto.",
+        "Iniciar divorcio unilateral.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert len(result["conversational"]["options"]) == 2
+
+
+def test_conversational_options_empty_when_many_actions():
+    payload = _refined_response()
+    payload["case_strategy"]["recommended_actions"] = [
+        "Accion 1.",
+        "Accion 2.",
+        "Accion 3.",
+        "Accion 4.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["options"] == []
+
+
+def test_conversational_next_step_from_quick_start():
+    result = output_mode_service.build_dual_output(_refined_response())
+
+    assert result["conversational"]["next_step"]
+    # Should strip the "Primer paso recomendado:" prefix
+    assert "primer paso recomendado" not in (result["conversational"]["next_step"] or "").lower()
+
+
+def test_conversational_missing_facts_max_three():
+    payload = _refined_response()
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Dato 1",
+        "Dato 2",
+    ]
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Dato 3",
+        "Dato 4",
+        "Dato 5",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert len(result["conversational"]["missing_facts"]) <= 3
+
+
+def test_conversational_robust_with_empty_payload():
+    result = output_mode_service.build_dual_output({})
+    conv = result["conversational"]
+
+    assert isinstance(conv["message"], str)
+    assert conv["message"]  # should have a default message
+    assert isinstance(conv["options"], list)
+    assert isinstance(conv["missing_facts"], list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Question scoring / selection tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_scoring_divorcio_prioriza_tipo_sobre_bienes():
+    """Given both process-type and property questions, pick the structural one."""
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+        "Definir si el divorcio es conjunto o unilateral.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "conjunto" in question.lower() or "unilateral" in question.lower()
+
+
+def test_scoring_divorcio_prioriza_hijos_sobre_prueba():
+    """Children questions rank higher than evidence questions."""
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Reunir prueba documental basica.",
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "hijos" in question.lower()
+
+
+def test_scoring_alimentos_prioriza_hijos():
+    """In alimentos domain, children-related question wins."""
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Necesito pedir alimentos"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Completar documentacion necesaria.",
+        "Verificar existencia de hijos menores a cargo.",
+        "Precisar el formato del escrito.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "hijos" in question.lower()
+
+
+def test_scoring_prioriza_competencia_sobre_costas():
+    """Jurisdiction/competencia outranks costs/costas."""
+    payload = _refined_response()
+    payload["query"] = "Quiero iniciar un juicio"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Verificar costas y honorarios estimados.",
+        "Determinar juzgado competente por domicilio.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "juzgado" in question.lower() or "competent" in question.lower()
+
+
+def test_scoring_prioriza_rol_procesal():
+    """Actor/demandado question ranks high (structural)."""
+    payload = _refined_response()
+    payload["query"] = "Tengo un problema legal"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Reunir prueba documental.",
+        "Definir si la persona actua como actor o demandado.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "actor" in question.lower() or "demandado" in question.lower()
+
+
+def test_scoring_question_engine_alta_beats_ordinary_missing():
+    """A question_engine candidate with priority 'alta' should win over
+    ordinary missing facts even if the missing fact scores higher on keywords."""
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = []
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Verificar existencia de hijos menores en comun.",
+    ]
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "¿El otro conyuge esta de acuerdo o la peticion debera tramitarse unilateralmente?",
+                "purpose": "Definir la variante procesal.",
+                "priority": "alta",
+                "category": "variante_divorcio",
+            }
+        ],
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    # The question_engine question should win: it has priority alta AND high keyword score
+    assert "unilateral" in question.lower() or "acuerdo" in question.lower()
+
+
+def test_scoring_tiebreaker_prefers_shorter():
+    """When two candidates score the same, the shorter one wins."""
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Verificar y determinar la competencia territorial del juzgado que debe intervenir segun ultimo domicilio conyugal.",
+        "Definir competencia territorial.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    # The shorter one should win
+    assert len(question) < 80
+
+
+def test_scoring_fallback_when_no_keywords_match():
+    """When no scoring rules match, falls back to first available (positional)."""
+    payload = _refined_response()
+    payload["query"] = "Tengo una consulta"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Dato generico uno.",
+        "Dato generico dos.",
+    ]
+    payload["case_strategy"]["ordinary_missing_information"] = []
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    # Should still produce a question (fallback), not crash
+    assert question is not None
+
+
+def test_scoring_urgencia_ranks_high():
+    """Urgency / medida cautelar questions should rank high."""
+    payload = _refined_response()
+    payload["case_domain"] = "civil"
+    payload["query"] = "Quiero iniciar una demanda"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Completar documentacion basica.",
+        "Evaluar si existe urgencia o necesidad de medida cautelar.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = result["conversational"]["question"]
+
+    assert question is not None
+    assert "urgencia" in question.lower() or "cautelar" in question.lower()
+
+
+def test_score_candidate_text_directly():
+    """Unit test for the scoring function itself."""
+    from app.services.output_mode_service import _score_candidate_text
+
+    # Structural: process type → should score high
+    assert _score_candidate_text("Definir si el divorcio es conjunto o unilateral") >= 10
+
+    # Children → high
+    assert _score_candidate_text("Confirmar existencia de hijos menores en comun") >= 9
+
+    # Property → medium
+    assert _score_candidate_text("Precisar bienes y vivienda familiar") >= 7
+
+    # Evidence → medium-low
+    assert _score_candidate_text("Reunir prueba documental basica") >= 6
+
+    # Accessory → low
+    assert _score_candidate_text("Verificar costas y honorarios") >= 3
+
+    # Structural always beats accessory
+    structural = _score_candidate_text("Definir si el divorcio es conjunto o unilateral")
+    accessory = _score_candidate_text("Verificar costas y honorarios")
+    assert structural > accessory
+
+
+def test_divorcio_continua_con_siguiente_pregunta_despues_de_responder_unilateral():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["facts"] = {"divorcio_modalidad": "unilateral", "hay_acuerdo": False}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "¿El divorcio sera de comun acuerdo o unilateral?",
+            "asked_questions": ["¿El divorcio sera de comun acuerdo o unilateral?"],
+            "known_facts": {"divorcio_modalidad": "unilateral", "hay_acuerdo": False},
+            "answer_status": "precise",
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral.",
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert "unilateral" not in (result["conversational"]["question"] or "").lower()
+    assert "conjunto" not in (result["conversational"]["question"] or "").lower()
+    assert "hijos" in (result["conversational"]["question"] or "").lower()
+
+
+def test_divorcio_no_repite_unilateral_ni_hijos_si_ya_fueron_aclarados():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+        "hay_hijos": True,
+    }
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "¿Tienen hijos menores en comun?",
+            "asked_questions": [
+                "¿El divorcio sera de comun acuerdo o unilateral?",
+                "¿Tienen hijos menores en comun?",
+            ],
+            "known_facts": {
+                "divorcio_modalidad": "unilateral",
+                "hay_acuerdo": False,
+                "hay_hijos": True,
+            },
+            "answer_status": "precise",
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral.",
+        "Confirmar si existen hijos menores en comun.",
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "unilateral" not in question
+    assert "conjunto" not in question
+    assert "hijos" not in question
+    assert "bienes" in question or "vivienda" in question
+
+
+def test_alimentos_integra_rol_demandado_y_cambia_la_pregunta_siguiente():
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Me demandan por alimentos"
+    payload["facts"] = {"rol_procesal": "demandado"}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Me demandan por alimentos",
+            "case_domain": "alimentos",
+            "last_question": "¿Actuas como actor o demandado?",
+            "asked_questions": ["¿Actuas como actor o demandado?"],
+            "known_facts": {"rol_procesal": "demandado"},
+            "answer_status": "precise",
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si la persona actua como actor o demandado.",
+        "Verificar existencia de hijos menores a cargo.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "demandado" not in question
+    assert "actor" not in question
+    assert "hijos" in question
+
+
+def test_respuesta_ambigua_pide_precision():
+    payload = _refined_response()
+    payload["query"] = "si"
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "¿El divorcio sera de comun acuerdo o unilateral?",
+            "asked_questions": ["¿El divorcio sera de comun acuerdo o unilateral?"],
+            "known_facts": {},
+            "precision_required": True,
+            "precision_prompt": "Necesito que me lo aclares mejor. Responde de forma concreta a esta pregunta: ¿El divorcio sera de comun acuerdo o unilateral?",
+            "answer_status": "ambiguous",
+        }
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert "aclares mejor" in (result["conversational"]["guided_response"] or "").lower()
+    assert result["output_modes"]["user"]["summary"].startswith("Necesito que me lo aclares mejor")
+
+
+def test_caso_ya_suficientemente_completo_sale_de_clarification_mode():
+    payload = _refined_response()
+    payload["query"] = (
+        "Quiero divorciarme. Es unilateral, no hay hijos, no hay bienes relevantes y "
+        "ya conozco el ultimo domicilio conyugal."
+    )
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+        "hay_hijos": False,
+        "hay_bienes": False,
+    }
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "¿El divorcio sera de comun acuerdo o unilateral?",
+            "asked_questions": ["¿El divorcio sera de comun acuerdo o unilateral?"],
+            "known_facts": {
+                "divorcio_modalidad": "unilateral",
+                "hay_acuerdo": False,
+                "hay_hijos": False,
+                "hay_bienes": False,
+            },
+            "answer_status": "precise",
+        }
+    }
+    payload["question_engine_result"] = {
+        "critical_questions": [
+            "¿El otro conyuge esta de acuerdo con divorciarse o la peticion debera tramitarse unilateralmente?"
+        ]
+    }
+    payload["case_strategy"]["critical_missing_information"] = []
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Completar la propuesta o convenio regulador con el nivel de detalle necesario.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is False
+    assert result["output_modes"]["user"]["quick_start"].startswith("Primer paso recomendado:")
+    assert result["conversational"]["message"].startswith("Con esto ya tengo una base clara para orientarte.")
+
+
+def test_evaluate_case_completeness_divorcio_modalidad_e_hijos_pasa_a_advice():
+    completeness = output_mode_service.evaluate_case_completeness(
+        {"divorcio_modalidad": "unilateral", "hay_hijos": False},
+        "divorcio",
+    )
+
+    assert completeness["is_complete"] is True
+    assert completeness["confidence_level"] in {"medium", "high"}
+    assert completeness["missing_critical"] == []
+
+
+def test_evaluate_case_completeness_divorcio_solo_modalidad_sigue_incompleto():
+    completeness = output_mode_service.evaluate_case_completeness(
+        {"divorcio_modalidad": "unilateral"},
+        "divorcio",
+    )
+
+    assert completeness["is_complete"] is False
+    assert "hay_hijos" in completeness["missing_critical"]
+
+
+def test_evaluate_case_completeness_alimentos_rol_e_hijos_pasa_a_advice():
+    completeness = output_mode_service.evaluate_case_completeness(
+        {"rol_procesal": "demandado", "hay_hijos": True, "urgencia": False},
+        "alimentos",
+    )
+
+    assert completeness["is_complete"] is True
+    assert completeness["missing_critical"] == []
+
+
+def test_caso_ambiguo_permanece_en_clarification_mode_por_incompleto():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["query"] = "Quiero divorciarme"
+    payload["facts"] = {"divorcio_modalidad": "unilateral"}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "known_facts": {"divorcio_modalidad": "unilateral"},
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["case_completeness"]["is_complete"] is False
+    assert result["conversational"]["should_ask_first"] is True
+
+
+def test_caso_completo_no_vuelve_a_clarification_aunque_queden_opcionales():
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Me demandan por alimentos de mi hijo"
+    payload["facts"] = {
+        "rol_procesal": "demandado",
+        "hay_hijos": True,
+        "situacion_economica": "trabajo informal",
+    }
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Me demandan por alimentos de mi hijo",
+            "case_domain": "alimentos",
+            "known_facts": {
+                "rol_procesal": "demandado",
+                "hay_hijos": True,
+                "situacion_economica": "trabajo informal",
+            },
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = []
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["case_completeness"]["is_complete"] is True
+    assert result["conversational"]["should_ask_first"] is False
+
+
+def test_closure_logic_no_corta_si_hay_missing_critical():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["facts"] = {"divorcio_modalidad": "unilateral"}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "known_facts": {"divorcio_modalidad": "unilateral"},
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert not result["conversational"]["message"].startswith("Con esto ya tengo una base clara para orientarte.")
+
+
+def test_closure_logic_cierra_y_comunica_cuando_ya_no_hay_criticos():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme. Es unilateral y no hay hijos."
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_hijos": False,
+    }
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "El divorcio sera unilateral o conjunto?",
+            "asked_questions": ["El divorcio sera unilateral o conjunto?"],
+            "known_facts": {
+                "divorcio_modalidad": "unilateral",
+                "hay_hijos": False,
+            },
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = []
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is False
+    assert result["conversational"]["message"].startswith("Con esto ya tengo una base clara para orientarte.")
+
+
+def test_guided_response_no_duplica_necesito_saber():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    guided = result["conversational"]["guided_response"] or ""
+
+    assert "necesito saber necesito saber" not in guided.lower()
+
+
+def test_critical_missing_no_sale_prematuramente_de_clarification_mode():
+    payload = _refined_response()
+    payload["case_domain"] = "cuidado_personal"
+    payload["case_domains"] = ["cuidado_personal"]
+    payload["query"] = "Necesito resolver cuidado personal urgente"
+    payload["facts"] = {"hay_hijos": True, "urgencia": True}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Necesito resolver cuidado personal urgente",
+            "case_domain": "cuidado_personal",
+            "known_facts": {"hay_hijos": True, "urgencia": True},
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si la persona actua como actor o demandado.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["should_ask_first"] is True
+
+
+def test_next_step_no_queda_gramaticalmente_torpe_con_via_procesal():
+    result = output_mode_service.build_dual_output(_refined_response())
+
+    assert result["conversational"]["next_step"] == "Definir como conviene iniciar el tramite."
+
+
+def test_prioridad_divorcio_modalidad_gana_sobre_hijos():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Confirmar si existen hijos menores en comun.",
+        "Definir si el divorcio es conjunto o unilateral.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "unilateral" in question or "conjunto" in question
+
+
+def test_prioridad_divorcio_hijos_gana_sobre_bienes():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "hijos" in question
+
+
+def test_prioridad_alimentos_rol_gana_sobre_hijos():
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Tengo un reclamo de alimentos"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Verificar existencia de hijos menores a cargo.",
+        "Definir si la persona actua como actor o demandado.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "actor" in question or "demandado" in question
+
+
+def test_prioridad_se_refleja_en_bonus_final_de_scoring():
+    assert output_mode_service.get_field_priority("divorcio", "divorcio_modalidad") > output_mode_service.get_field_priority("divorcio", "hay_bienes")
+    assert output_mode_service.get_field_priority("alimentos", "rol_procesal") > output_mode_service.get_field_priority("alimentos", "urgencia")
+
+
+def test_prioridad_fallback_si_no_hay_peso_definido_mantiene_comportamiento_actual():
+    assert output_mode_service.get_field_priority("divorcio", "campo_inexistente") == 0.0
+    payload = _refined_response()
+    payload["case_domain"] = "civil"
+    payload["query"] = "Tengo una consulta"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Dato generico uno.",
+        "Dato generico dos.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["question"] is not None

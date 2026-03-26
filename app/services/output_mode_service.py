@@ -39,11 +39,225 @@ _USER_TEXT_BLOCK_PATTERNS = (
     r"\bcompetencia originaria\b",
 )
 
+_DECISIVE_MISSING_PATTERNS = (
+    "definir la via procesal aplicable",
+    "precisar competencia judicial",
+    "acreditar legitimacion",
+    "acreditar legitimacion y personeria",
+    "falta acreditar matrimonio",
+    "falta acreditar vinculo",
+)
+
+_DECISIVE_QUESTION_PATTERNS = (
+    "tramitarse unilateralmente",
+    "mutuo acuerdo",
+    "presentacion conjunta",
+    "ultimo domicilio conyugal",
+    "domicilio actual del otro conyuge",
+    "propuesta reguladora",
+    "juzgado competente",
+    "legitimacion",
+)
+
+# ---------------------------------------------------------------------------
+# Question relevance scoring
+# ---------------------------------------------------------------------------
+# Each rule: (score, [patterns]).  Patterns are matched against the
+# normalised (lowercased, collapsed-whitespace) text of the candidate.
+# A candidate accumulates points from every matching tier — the highest
+# total wins.  Tiers are ordered by strategic impact.
+
+_QUESTION_SCORE_RULES: tuple[tuple[int, tuple[str, ...]], ...] = (
+    # --- TIER 1 — structural / determinative (10-9) ---
+    (10, (
+        r"conjunto.*unilateral|unilateral.*conjunto",
+        r"de acuerdo.*unilateral|unilateral.*acuerdo",
+        r"mutuo acuerdo|presentacion conjunta",
+        r"tipo de (proceso|tramite|divorcio|juicio)",
+        r"contencioso|incidental|voluntario",
+        r"variante procesal",
+    )),
+    (9, (
+        r"\bhijos?\b.*menor|menor.*\bhijos?\b",
+        r"hijos en comun|hijos menores|existencia de hijos",
+        r"regimen de (comunicacion|visitas|cuidado)",
+        r"responsabilidad parental",
+    )),
+    (9, (
+        r"\bactor\b|\bdemandado\b|rol procesal",
+        r"quien (inicia|promueve|demanda)",
+        r"legitimacion (activa|pasiva)",
+    )),
+    (9, (
+        r"urgencia|medida cautelar|peligro en la demora",
+        r"tutela anticipada|proteccion (urgente|inmediata)",
+        r"violencia|restriccion",
+    )),
+    (8, (
+        r"competencia|juzgado|jurisdiccion",
+        r"domicilio conyugal|ultimo domicilio",
+        r"fuero|radicacion",
+    )),
+    # --- TIER 2 — important context (7-5) ---
+    (7, (
+        r"bienes|vivienda|patrimonio|inmueble",
+        r"compensacion economica",
+        r"propuesta reguladora|convenio regulador",
+        r"sociedad conyugal|regimen patrimonial",
+    )),
+    (7, (
+        r"alimentos|cuota alimentaria|obligacion alimentaria",
+        r"pension|manutencion",
+    )),
+    (6, (
+        r"prueba|documental|testimonial|pericial",
+        r"acreditar|documentacion",
+    )),
+    (5, (
+        r"hechos|circunstancias|contexto",
+        r"antecedentes|situacion actual",
+    )),
+    # --- TIER 3 — accessory (3-1) ---
+    (3, (
+        r"costas|honorarios|regulacion de honorarios",
+        r"notificacion|traslado|cedula",
+    )),
+    (1, (
+        r"plazo|termino",
+        r"formato|modelo|escrito",
+    )),
+)
+
+_CASE_COMPLETENESS_RULES: dict[str, dict[str, Any]] = {
+    "divorcio": {
+        "critical_any": (
+            ("divorcio_modalidad", "hay_acuerdo"),
+        ),
+        "critical_all": ("hay_hijos",),
+        "optional": ("cese_convivencia", "hay_bienes"),
+    },
+    "alimentos": {
+        "critical_all": ("rol_procesal", "hay_hijos"),
+        "critical_any": (
+            ("situacion_economica", "urgencia", "hay_ingresos"),
+        ),
+        "optional": ("hay_bienes", "vivienda_familiar"),
+    },
+    "cuidado_personal": {
+        "critical_all": ("hay_hijos",),
+        "critical_any": (
+            ("rol_procesal",),
+            ("hay_acuerdo",),
+        ),
+        "optional": ("urgencia", "cese_convivencia"),
+    },
+}
+
+_DOMAIN_FIELD_PRIORITIES: dict[str, dict[str, float]] = {
+    "divorcio": {
+        "divorcio_modalidad": 1.0,
+        "hay_hijos": 0.9,
+        "hay_acuerdo": 0.85,
+        "cese_convivencia": 0.6,
+        "hay_bienes": 0.5,
+        "vivienda_familiar": 0.45,
+    },
+    "alimentos": {
+        "rol_procesal": 1.0,
+        "hay_hijos": 0.95,
+        "situacion_economica": 0.85,
+        "hay_ingresos": 0.85,
+        "urgencia": 0.8,
+        "hay_bienes": 0.45,
+        "vivienda_familiar": 0.4,
+    },
+    "cuidado_personal": {
+        "hay_hijos": 1.0,
+        "rol_procesal": 0.9,
+        "hay_acuerdo": 0.85,
+        "urgencia": 0.75,
+        "cese_convivencia": 0.55,
+    },
+}
+
+_FIELD_PRIORITY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("divorcio_modalidad", (
+        "unilateral",
+        "conjunto",
+        "mutuo acuerdo",
+        "comun acuerdo",
+        "común acuerdo",
+        "variante procesal",
+        "presentacion conjunta",
+    )),
+    ("hay_hijos", (
+        "hijos",
+        "menores",
+        "responsabilidad parental",
+        "cuidado personal",
+        "regimen de comunicacion",
+        "régimen de comunicación",
+    )),
+    ("hay_acuerdo", (
+        "hay acuerdo",
+        "de acuerdo",
+        "acuerdo",
+    )),
+    ("rol_procesal", (
+        "actor",
+        "demandado",
+        "rol procesal",
+        "quien inicia",
+        "quien promueve",
+        "quien demanda",
+    )),
+    ("urgencia", (
+        "urgencia",
+        "cautelar",
+        "peligro en la demora",
+        "tutela anticipada",
+        "proteccion urgente",
+    )),
+    ("situacion_economica", (
+        "situacion economica",
+        "situación económica",
+        "capacidad economica",
+        "capacidad económica",
+    )),
+    ("hay_ingresos", (
+        "ingresos",
+        "recursos",
+        "salario",
+        "trabajo",
+    )),
+    ("cese_convivencia", (
+        "cese de convivencia",
+        "convivencia",
+        "separados",
+    )),
+    ("hay_bienes", (
+        "bienes",
+        "patrimonio",
+        "compensacion economica",
+        "compensación económica",
+    )),
+    ("vivienda_familiar", (
+        "vivienda",
+        "hogar conyugal",
+        "casa",
+        "inmueble",
+    )),
+)
+
+_FIELD_PRIORITY_WEIGHT_FACTOR = 4.0
+
 
 def build_dual_output(response: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(response or {})
+    conversational = _build_conversational(payload)
+    payload["conversational"] = conversational
     payload["output_modes"] = {
-        "user": _build_user_output(payload),
+        "user": _build_user_output(payload, conversational),
         "professional": _build_professional_output(payload),
     }
     return payload
@@ -78,7 +292,7 @@ def explain_confidence(response: dict[str, Any], mode: str) -> str:
     return "El encuadre principal aparece suficientemente determinado y la estrategia base puede sostenerse con la informacion disponible."
 
 
-def _build_user_output(response: dict[str, Any]) -> dict[str, Any]:
+def _build_user_output(response: dict[str, Any], conversational: dict[str, Any]) -> dict[str, Any]:
     case_domain = _clean_text(response.get("case_domain"))
     case_strategy = _as_dict(response.get("case_strategy"))
     quick_start = _clean_text(response.get("quick_start"))
@@ -106,6 +320,20 @@ def _build_user_output(response: dict[str, Any]) -> dict[str, Any]:
 
     summary = _to_user_text(summary_source) or _default_user_summary(case_domain, quick_start)
     what_this_means = _to_user_text(what_this_means_source) or summary
+
+    if conversational.get("should_ask_first"):
+        decisive_question = _clean_text(conversational.get("question"))
+        guided_response = _clean_text(conversational.get("guided_response"))
+        return {
+            "title": _question_first_title(case_domain),
+            "summary": guided_response or summary,
+            "quick_start": "",
+            "what_this_means": guided_response or what_this_means,
+            "next_steps": [decisive_question] if decisive_question else [],
+            "key_risks": [],
+            "missing_information": _dedupe_strs(_to_user_list(conversational.get("missing_facts") or []))[:2],
+            "confidence_explained": "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
+        }
 
     return {
         "title": _user_title(case_domain, quick_start),
@@ -137,6 +365,645 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
         "normative_focus": normative_focus,
         "confidence_explained": explain_confidence(response, mode="professional"),
     }
+
+
+def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
+    case_strategy = _as_dict(response.get("case_strategy"))
+    reasoning = _as_dict(response.get("reasoning"))
+    procedural_strategy = _as_dict(response.get("procedural_strategy"))
+    case_domain = _clean_text(response.get("case_domain"))
+    metadata = _as_dict(response.get("metadata"))
+    clarification_context = _as_dict(metadata.get("clarification_context"))
+    known_facts = _collect_known_facts(response)
+    completeness = evaluate_case_completeness(known_facts, case_domain)
+
+    message = _to_user_text(
+        _first_nonempty_text(
+            reasoning.get("short_answer"),
+            case_strategy.get("strategic_narrative"),
+            response.get("quick_start"),
+            response.get("response_text"),
+        )
+    )
+    if not message:
+        message = _default_user_summary(case_domain, _clean_text(response.get("quick_start")))
+    memory_phrase = _build_memory_phrase(known_facts)
+    if memory_phrase:
+        message = f"{memory_phrase} {message}".strip()
+
+    critical_missing = _filter_unresolved_items(
+        _dedupe_strs(_as_str_list(case_strategy.get("critical_missing_information"))),
+        known_facts=known_facts,
+        case_domain=case_domain,
+    )
+    ordinary_missing = _filter_unresolved_items(
+        _dedupe_strs(_as_str_list(case_strategy.get("ordinary_missing_information"))),
+        known_facts=known_facts,
+        case_domain=case_domain,
+    )
+    procedural_missing = _dedupe_strs(
+        _as_str_list(procedural_strategy.get("missing_information") or procedural_strategy.get("missing_info"))
+    )
+    procedural_missing = _filter_unresolved_items(
+        procedural_missing,
+        known_facts=known_facts,
+        case_domain=case_domain,
+    )
+    missing_facts = _dedupe_strs([*critical_missing, *ordinary_missing, *procedural_missing])[:3]
+    recommended = _as_str_list(case_strategy.get("recommended_actions"))
+
+    question_candidates = _filter_question_candidates(
+        _extract_question_candidates(response),
+        known_facts=known_facts,
+        case_domain=case_domain,
+    )
+    selected_question = _select_primary_question(response, critical_missing, ordinary_missing, question_candidates)
+
+    precision_prompt = _clean_text(clarification_context.get("precision_prompt"))
+    precision_required = bool(clarification_context.get("precision_required")) and bool(precision_prompt)
+    if precision_required:
+        selected_question = _clean_question(precision_prompt)
+        should_ask_first = True
+        guided_response = f"{memory_phrase} {precision_prompt}".strip() if memory_phrase else precision_prompt
+    else:
+        should_ask_first = _should_ask_first(
+            response,
+            critical_missing,
+            question_candidates,
+            selected_question,
+            completeness=completeness,
+        )
+        guided_response = _build_guided_response(selected_question, response) if should_ask_first else None
+        if memory_phrase and guided_response:
+            guided_response = f"{memory_phrase} {guided_response}".strip()
+    if not should_ask_first and _should_close_clarification(
+        response,
+        critical_missing=critical_missing,
+        completeness=completeness,
+    ):
+        message = _build_closure_message(message)
+
+    options: list[str] = []
+    if 2 <= len(recommended) <= 3 and all(len(item) < 120 for item in recommended):
+        options = [_to_user_text(item) for item in recommended]
+
+    quick_start_raw = _clean_text(response.get("quick_start"))
+    next_step_source = _first_nonempty_text(
+        _strip_known_prefix(quick_start_raw, "Primer paso recomendado:") if quick_start_raw else "",
+        recommended[0] if recommended else "",
+        _as_str_list(procedural_strategy.get("next_steps"))[0] if _as_str_list(procedural_strategy.get("next_steps")) else "",
+    )
+    next_step = _to_user_text(next_step_source) if next_step_source else None
+
+    return {
+        "message": guided_response or message,
+        "question": selected_question,
+        "options": options,
+        "missing_facts": [_to_user_text(item) for item in missing_facts][:3],
+        "next_step": None if should_ask_first else next_step,
+        "should_ask_first": should_ask_first,
+        "guided_response": guided_response,
+        "known_facts": known_facts,
+        "clarification_status": _clean_text(clarification_context.get("answer_status")) or "none",
+        "asked_questions": _dedupe_strs(
+            [
+                *_as_str_list(clarification_context.get("asked_questions")),
+                _clean_text(clarification_context.get("last_question")),
+            ]
+        ),
+        "case_completeness": completeness,
+    }
+
+
+def _build_memory_phrase(known_facts: dict[str, Any]) -> str:
+    facts = _as_dict(known_facts)
+    if not facts:
+        return ""
+
+    prioritized_fields = (
+        "divorcio_modalidad",
+        "hay_hijos",
+        "hay_acuerdo",
+        "rol_procesal",
+        "urgencia",
+        "hay_bienes",
+        "situacion_economica",
+    )
+    snippets: list[str] = []
+    for field in prioritized_fields:
+        snippet = _fact_to_memory_snippet(field, facts.get(field))
+        if snippet and snippet not in snippets:
+            snippets.append(snippet)
+        if len(snippets) >= 3:
+            break
+
+    if not snippets:
+        return ""
+
+    lead = _memory_lead(snippets[0], facts)
+    return f"{lead}{_join_memory_snippets(snippets)}."
+
+
+def _fact_to_memory_snippet(field: str, value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+
+    if field == "divorcio_modalidad":
+        modalidad = _clean_text(value).casefold()
+        if modalidad in {"unilateral", "conjunto"}:
+            return f"divorcio {modalidad}"
+        return ""
+    if field == "hay_hijos":
+        return "con hijos" if bool(value) else "sin hijos"
+    if field == "hay_acuerdo":
+        return "con acuerdo" if bool(value) else "sin acuerdo"
+    if field == "rol_procesal":
+        rol = _clean_text(value)
+        return f"actuas como {rol}" if rol else ""
+    if field == "urgencia":
+        return "hay urgencia" if bool(value) else ""
+    if field == "hay_bienes":
+        return "hay bienes" if bool(value) else "no aparecen bienes relevantes"
+    if field == "situacion_economica":
+        descripcion = _clean_text(value)
+        return f"hay un dato economico relevante: {descripcion}" if descripcion else ""
+    return ""
+
+
+def _memory_lead(first_snippet: str, facts: dict[str, Any]) -> str:
+    if first_snippet.startswith("divorcio "):
+        return "Perfecto. Entonces estamos frente a un "
+    if "rol_procesal" in facts:
+        return "Bien. Entonces veo que "
+    return "Perfecto. Entonces "
+
+
+def _join_memory_snippets(snippets: list[str]) -> str:
+    if not snippets:
+        return ""
+    if len(snippets) == 1:
+        return snippets[0]
+    if len(snippets) == 2:
+        return f"{snippets[0]} y {snippets[1]}"
+    return f"{snippets[0]}, {snippets[1]} y {snippets[2]}"
+
+
+def _extract_question_candidates(response: dict[str, Any]) -> list[dict[str, str]]:
+    question_engine = _as_dict(response.get("question_engine_result"))
+    raw_items = question_engine.get("questions") or []
+    candidates: list[dict[str, str]] = []
+
+    for item in raw_items:
+        if isinstance(item, dict):
+            question = _clean_text(item.get("question"))
+            purpose = _clean_text(item.get("purpose"))
+            priority = _clean_text(item.get("priority"))
+            category = _clean_text(item.get("category"))
+        else:
+            question = _clean_text(item)
+            purpose = ""
+            priority = ""
+            category = ""
+        if not question:
+            continue
+        candidates.append(
+            {
+                "question": question,
+                "purpose": purpose,
+                "priority": priority,
+                "category": category,
+            }
+        )
+
+    if candidates:
+        return candidates
+
+    for question in _as_str_list(question_engine.get("critical_questions")):
+        candidates.append(
+            {
+                "question": question,
+                "purpose": "",
+                "priority": "alta",
+                "category": "",
+            }
+        )
+    return candidates
+
+
+def _score_candidate_text(text: str) -> int:
+    """Score a question/fact text by matching against _QUESTION_SCORE_RULES.
+
+    Accumulates points from every matching tier.  Higher = more strategically
+    relevant.
+    """
+    normalized = _normalize_text(text)
+    if not normalized:
+        return 0
+    total = 0
+    for score, patterns in _QUESTION_SCORE_RULES:
+        for pattern in patterns:
+            if re.search(pattern, normalized):
+                total += score
+                break  # one match per tier is enough
+    return total
+
+
+def _select_primary_question(
+    response: dict[str, Any],
+    critical_missing: list[str],
+    ordinary_missing: list[str],
+    question_candidates: list[dict[str, str]],
+) -> str | None:
+    """Select the most strategically relevant question across all sources.
+
+    Pools candidates from:
+      1. question_engine_result questions (structured)
+      2. critical_missing_information
+      3. ordinary_missing_information
+
+    Each candidate is scored.  Ties are broken by:
+      a. explicit priority == "alta" gets +3 bonus
+      b. shorter text wins (clearer, less ambiguous)
+
+    Falls back to positional [0] only when scoring produces a tie at 0.
+    """
+    case_domain = _clean_text(response.get("case_domain"))
+    # Build a unified pool: (display_text, raw_score, source_priority, original_text)
+    pool: list[tuple[str, float, int, str]] = []
+
+    # Source 1: question_engine candidates
+    for candidate in question_candidates:
+        text = _clean_text(candidate.get("question"))
+        if not text:
+            continue
+        score = _score_candidate_text(text)
+        priority_bonus = 3 if str(candidate.get("priority") or "").strip().lower() == "alta" else 0
+        priority_bonus += _priority_score_bonus(
+            case_domain=case_domain,
+            text=text,
+            category=_clean_text(candidate.get("category")),
+        )
+        pool.append((text, score + priority_bonus, 0, text))
+
+    # Source 2: critical_missing (implicit high priority)
+    for fact in critical_missing:
+        text = _clean_text(fact)
+        if not text:
+            continue
+        score = _score_candidate_text(text)
+        score += 2
+        score += _priority_score_bonus(case_domain=case_domain, text=text)
+        pool.append((text, score, 1, fact))  # +2 for being critical
+
+    # Source 3: ordinary_missing
+    for fact in ordinary_missing:
+        text = _clean_text(fact)
+        if not text:
+            continue
+        score = _score_candidate_text(text)
+        score += _priority_score_bonus(case_domain=case_domain, text=text)
+        pool.append((text, score, 2, fact))
+
+    if not pool:
+        return None
+
+    # Sort: highest score first, then shortest text (tiebreaker)
+    pool.sort(key=lambda item: (-item[1], len(item[0])))
+
+    best_text, _best_score, source_idx, original = pool[0]
+
+    # Source 0 = question_engine → already a question, just clean it
+    if source_idx == 0:
+        return _clean_question(best_text)
+
+    # Source 1/2 = missing fact → convert to question
+    return _fact_to_question(original)
+
+
+def _should_ask_first(
+    response: dict[str, Any],
+    critical_missing: list[str],
+    question_candidates: list[dict[str, str]],
+    selected_question: str | None,
+    *,
+    completeness: dict[str, Any] | None = None,
+) -> bool:
+    if not selected_question:
+        return False
+
+    completeness = completeness or evaluate_case_completeness(
+        _collect_known_facts(response),
+        _clean_text(response.get("case_domain")),
+    )
+    if completeness.get("is_complete"):
+        return False
+
+    if critical_missing:
+        return True
+
+    normalized_question = _clean_text(selected_question).casefold()
+    if _looks_detailed_enough(response):
+        return False
+
+    if any(pattern in normalized_question for pattern in _DECISIVE_QUESTION_PATTERNS):
+        return True
+
+    if any(pattern in _normalize_text(" ".join(critical_missing)) for pattern in _DECISIVE_MISSING_PATTERNS):
+        return True
+
+    high_priority_questions = [
+        item
+        for item in question_candidates
+        if str(item.get("priority") or "").strip().lower() == "alta"
+    ]
+    return bool(high_priority_questions)
+
+
+def _should_close_clarification(
+    response: dict[str, Any],
+    *,
+    critical_missing: list[str],
+    completeness: dict[str, Any] | None = None,
+) -> bool:
+    if critical_missing:
+        return False
+
+    metadata = _as_dict(response.get("metadata"))
+    clarification_context = _as_dict(metadata.get("clarification_context"))
+    if not clarification_context:
+        return False
+
+    completeness = completeness or evaluate_case_completeness(
+        _collect_known_facts(response),
+        _clean_text(response.get("case_domain")),
+    )
+    if completeness.get("is_complete"):
+        return True
+
+    return _looks_detailed_enough(response)
+
+
+def _build_closure_message(message: str) -> str:
+    base_message = _clean_text(message)
+    closure_lead = "Con esto ya tengo una base clara para orientarte."
+    if not base_message:
+        return closure_lead
+    if base_message.casefold().startswith(closure_lead.casefold()):
+        return base_message
+    return f"{closure_lead} {base_message}"
+
+
+def _priority_score_bonus(
+    *,
+    case_domain: str,
+    text: str,
+    category: str | None = None,
+) -> float:
+    inferred_field = _infer_priority_field(text=text, category=category)
+    if not inferred_field:
+        return 0.0
+    return round(get_field_priority(case_domain, inferred_field) * _FIELD_PRIORITY_WEIGHT_FACTOR, 4)
+
+
+def _infer_priority_field(*, text: str, category: str | None = None) -> str | None:
+    normalized_category = _normalize_text(category or "")
+    normalized_text = _normalize_text(text)
+    for field, patterns in _FIELD_PRIORITY_PATTERNS:
+        if normalized_category and any(pattern in normalized_category for pattern in patterns):
+            return field
+        if any(pattern in normalized_text for pattern in patterns):
+            return field
+    return None
+
+
+def _looks_detailed_enough(response: dict[str, Any]) -> bool:
+    query = _clean_text(response.get("query"))
+    facts = _collect_known_facts(response)
+    case_strategy = _as_dict(response.get("case_strategy"))
+    case_domain = _clean_text(response.get("case_domain")).casefold()
+    completeness = evaluate_case_completeness(facts, case_domain)
+
+    token_count = len([token for token in re.split(r"\W+", query) if token])
+    detailed_facts = len([value for value in facts.values() if value not in (None, "", [], {})]) >= 2
+    has_children_detail = any(
+        term in _normalize_text(query) for term in ("hijos", "bienes", "vivienda", "alimentos", "compensacion")
+    )
+    ordinary_missing = len(_as_str_list(case_strategy.get("ordinary_missing_information")))
+
+    if completeness.get("is_complete"):
+        return True
+    if detailed_facts:
+        return True
+    if token_count >= 14:
+        return True
+    if case_domain == "divorcio" and has_children_detail and ordinary_missing <= 2:
+        return True
+    return False
+
+
+def evaluate_case_completeness(facts: dict[str, Any] | None, domain: str | None) -> dict[str, Any]:
+    normalized_domain = _clean_text(domain).casefold()
+    rules = _CASE_COMPLETENESS_RULES.get(normalized_domain)
+    known_facts = {
+        key: value
+        for key, value in _as_dict(facts).items()
+        if value not in (None, "", [], {})
+    }
+    if not rules:
+        fact_count = len(known_facts)
+        confidence_level = "high" if fact_count >= 3 else "medium" if fact_count >= 2 else "low"
+        return {
+            "is_complete": fact_count >= 2,
+            "missing_critical": [],
+            "missing_optional": [],
+            "confidence_level": confidence_level,
+        }
+
+    missing_critical: list[str] = []
+    missing_optional: list[str] = []
+
+    for field in rules.get("critical_all", ()):
+        if not _has_meaningful_fact(known_facts, field):
+            missing_critical.append(field)
+
+    for alternative_group in rules.get("critical_any", ()):
+        if not any(_has_meaningful_fact(known_facts, field) for field in alternative_group):
+            missing_critical.append("/".join(alternative_group))
+
+    for field in rules.get("optional", ()):
+        if not _has_meaningful_fact(known_facts, field):
+            missing_optional.append(field)
+
+    is_complete = not missing_critical
+    if is_complete and not missing_optional:
+        confidence_level = "high"
+    elif is_complete:
+        confidence_level = "medium"
+    else:
+        confidence_level = "low"
+
+    return {
+        "is_complete": is_complete,
+        "missing_critical": missing_critical,
+        "missing_optional": missing_optional,
+        "confidence_level": confidence_level,
+    }
+
+
+def get_field_priority(domain: str | None, field: str | None) -> float:
+    normalized_domain = _clean_text(domain).casefold()
+    normalized_field = _clean_text(field)
+    if not normalized_domain or not normalized_field:
+        return 0.0
+    return float(_DOMAIN_FIELD_PRIORITIES.get(normalized_domain, {}).get(normalized_field, 0.0) or 0.0)
+
+
+def _collect_known_facts(response: dict[str, Any]) -> dict[str, Any]:
+    metadata = _as_dict(response.get("metadata"))
+    clarification_context = _as_dict(metadata.get("clarification_context"))
+    known_facts = _merge_dicts(
+        _as_dict(clarification_context.get("known_facts")),
+        _as_dict(response.get("facts")),
+    )
+    return {key: value for key, value in known_facts.items() if value not in (None, "", [], {})}
+
+
+def _filter_question_candidates(
+    candidates: list[dict[str, str]],
+    *,
+    known_facts: dict[str, Any],
+    case_domain: str,
+) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for candidate in candidates:
+        question = _clean_text(candidate.get("question"))
+        if not question:
+            continue
+        if _item_is_resolved(question, known_facts=known_facts, case_domain=case_domain):
+            continue
+        result.append(candidate)
+    return result
+
+
+def _filter_unresolved_items(
+    items: list[str],
+    *,
+    known_facts: dict[str, Any],
+    case_domain: str,
+) -> list[str]:
+    return [
+        item
+        for item in items
+        if not _item_is_resolved(item, known_facts=known_facts, case_domain=case_domain)
+    ]
+
+
+def _item_is_resolved(
+    text: str,
+    *,
+    known_facts: dict[str, Any],
+    case_domain: str,
+) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized or not known_facts:
+        return False
+
+    if any(term in normalized for term in ("unilateral", "conjunto", "acuerdo")):
+        modalidad = _clean_text(known_facts.get("divorcio_modalidad")).casefold()
+        if modalidad in {"unilateral", "conjunto"}:
+            return True
+        if "hay_acuerdo" in known_facts and "acuerdo" in normalized and "unilateral" not in normalized:
+            return True
+
+    if "hijos" in normalized and "hay_hijos" in known_facts:
+        return True
+
+    if any(term in normalized for term in ("actor", "demandado", "rol procesal")) and _clean_text(known_facts.get("rol_procesal")):
+        return True
+
+    if "urgencia" in normalized and "urgencia" in known_facts:
+        return True
+
+    if any(term in normalized for term in ("bienes", "vivienda", "patrimonial")) and "hay_bienes" in known_facts:
+        return True
+
+    if "convivencia" in normalized and "cese_convivencia" in known_facts:
+        return True
+
+    if case_domain.casefold() == "divorcio" and "propuesta reguladora" in normalized and known_facts.get("hay_acuerdo") is True:
+        return False
+
+    return False
+
+
+def _build_guided_response(question: str | None, response: dict[str, Any]) -> str | None:
+    if not question:
+        return None
+
+    question_candidates = _extract_question_candidates(response)
+    selected_candidate = question_candidates[0] if question_candidates else {}
+    purpose = _clean_text(selected_candidate.get("purpose"))
+    question_body = _strip_question_marks(question)
+    question_body = re.sub(r"^necesito saber\s+", "", question_body, flags=re.IGNORECASE).strip()
+    reason = _purpose_to_reason(purpose, response)
+    if reason:
+        return f"Para orientarte bien, primero necesito saber {question_body}, porque {reason}."
+    return f"Para orientarte bien, primero necesito saber {question_body}."
+
+
+def _purpose_to_reason(purpose: str, response: dict[str, Any]) -> str:
+    lowered = _normalize_text(purpose)
+    if not lowered:
+        case_domain = _clean_text(response.get("case_domain")).casefold()
+        if case_domain == "divorcio":
+            return "eso cambia la estrategia y la presentacion inicial"
+        return ""
+    replacements = (
+        ("definir la variante procesal del divorcio y evitar un encuadre incompleto", "eso cambia la estrategia y la presentacion inicial"),
+        ("determinar competencia y eventuales necesidades de notificacion", "eso define el juzgado y la forma correcta de iniciar"),
+        ("ordenar el contenido minimo exigible para la presentacion judicial", "sin ese dato la presentacion inicial puede quedar incompleta"),
+        ("identificar si el divorcio involucra efectos parentales que deben ordenarse desde el inicio", "eso cambia lo que hay que regular desde el comienzo"),
+    )
+    for source, target in replacements:
+        if source in lowered:
+            return target
+    return lowered
+
+
+def _fact_to_question(fact: str) -> str:
+    text = _to_user_text(fact)
+    if not text:
+        return ""
+    if text.rstrip().endswith("?"):
+        return text
+    lowered = text.lower().rstrip(".")
+    lowered = re.sub(r"^(definir|precisar|completar|verificar|confirmar|determinar|especificar)\s+", "", lowered)
+    if lowered.startswith("si "):
+        return f"Necesito saber {lowered}."
+    return f"Necesito saber {lowered}."
+
+
+def _clean_question(question: str | None) -> str | None:
+    text = _clean_text(question)
+    if not text:
+        return None
+    return _strip_question_marks(_to_user_text(text))
+
+
+def _strip_question_marks(text: str) -> str:
+    value = _clean_text(text)
+    value = value.lstrip("¿").rstrip("?").strip()
+    if value:
+        return value[:1].lower() + value[1:]
+    return value
+
+
+def _question_first_title(case_domain: str) -> str:
+    if case_domain.casefold() == "divorcio":
+        return "Dato clave para orientar tu divorcio"
+    if case_domain:
+        return f"Dato clave para orientar {_humanize_case_domain(case_domain)}"
+    return "Dato clave para orientar el caso"
 
 
 def _build_normative_focus(normative_reasoning: dict[str, Any]) -> list[str]:
@@ -210,6 +1077,11 @@ def _to_user_text(text: str) -> str:
     result = "".join(normalized_segments)
     result = re.sub(r"\s+", " ", result).strip()
     result = re.sub(r"\s+([,.;:])", r"\1", result)
+    result = re.sub(
+        r"(?i)^definir la como conviene iniciar el tramite(?: aplicable)?\.?$",
+        "Definir como conviene iniciar el tramite.",
+        result,
+    )
     return result
 
 
@@ -288,6 +1160,29 @@ def _dedupe_strs(items: list[str]) -> list[str]:
         seen.add(normalized)
         result.append(value)
     return result
+
+
+def _has_meaningful_fact(facts: dict[str, Any], field: str) -> bool:
+    if field not in facts:
+        return False
+    value = facts.get(field)
+    if isinstance(value, str):
+        return bool(_clean_text(value))
+    return value not in (None, [], {})
+
+
+def _merge_dicts(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in (incoming or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dicts(merged[key], value)
+            continue
+        merged[key] = value
+    return merged
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
 
 def _clean_text(value: Any) -> str:

@@ -16,6 +16,7 @@ from app.db.database import get_db
 from app.db.user_models import User
 from app.services import consulta_service
 from app.services import learning_log_service, query_logging_service
+from app.services import session_tracking_service
 from app.services.beta_observability_helpers import derive_response_status
 from app.services.beta_observability_service import (
     fail_beta_observability_context,
@@ -24,6 +25,7 @@ from app.services.beta_observability_service import (
     update_beta_observability_context,
 )
 from app.services.chat_logger import build_chat_log_entry, log_chat_interaction
+from app.services.clarification_flow_service import prepare_legal_query_turn
 from app.services.learning_safety_service import (
     infer_fallback_type,
     record_safety_event,
@@ -55,6 +57,7 @@ class LegalQueryRequest(BaseModel):
 
 class LegalQueryResponse(BaseModel):
     request_id: Optional[str] = None
+    session_id: Optional[str] = None
     pipeline_version: Optional[str] = None
     orchestrator_version: Optional[str] = None
     query: str
@@ -96,6 +99,7 @@ class LegalQueryResponse(BaseModel):
     case_strategy: dict = Field(default_factory=dict)
     legal_strategy: dict = Field(default_factory=dict)
     output_modes: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    conversational: dict[str, Any] = Field(default_factory=dict)
     generated_document: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     confidence: Optional[float] = None
@@ -176,6 +180,60 @@ def _extract_response_summary(response_dict: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _safe_track_session_cycle(
+    db: Session,
+    *,
+    session_id: str | None,
+    user_id: str | None,
+    query: str,
+    jurisdiction: str | None,
+    case_domain: str | None,
+    conversational: dict[str, Any] | None,
+    metadata: dict[str, Any] | None,
+) -> None:
+    if not session_id:
+        return
+    try:
+        session_tracking_service.track_legal_query_cycle(
+            db,
+            session_id=session_id,
+            user_id=user_id,
+            query=query,
+            jurisdiction=jurisdiction,
+            case_domain=case_domain,
+            conversational=conversational,
+            metadata=metadata,
+        )
+    except Exception:
+        _safe_rollback(db)
+        logger.exception("No se pudo registrar analytics de sesion.", extra={"session_id": session_id})
+
+
+def _safe_track_error(
+    db: Session,
+    *,
+    session_id: str | None,
+    user_id: str | None,
+    error_type: str,
+    message: str,
+    jurisdiction: str | None = None,
+) -> None:
+    if not session_id:
+        return
+    try:
+        session_tracking_service.track_backend_error(
+            db,
+            session_id=session_id,
+            user_id=user_id,
+            error_type=error_type,
+            message=message,
+            jurisdiction=jurisdiction,
+        )
+    except Exception:
+        _safe_rollback(db)
+        logger.exception("No se pudo registrar error analytics de sesion.", extra={"session_id": session_id})
+
+
 @router.post("/legal-query", response_model=LegalQueryResponse)
 def legal_query(
     payload: LegalQueryRequest,
@@ -189,7 +247,8 @@ def legal_query(
     metadata["request_id"] = request_id
     source_ip = _extract_source_ip(request)
     processing_log_id: Optional[str] = None
-    session_id = _extract_session_id(metadata)
+    session_id = session_tracking_service.ensure_session_id(_extract_session_id(metadata))
+    metadata["session_id"] = session_id
 
     pm_status = evaluate_protective_mode()
     pm_active = pm_status["protective_mode_active"]
@@ -240,6 +299,14 @@ def legal_query(
             error_message="input_rejected",
             response_status="blocked",
             total_duration_ms=int((time.perf_counter() - start_time) * 1000),
+        )
+        _safe_track_error(
+            db,
+            session_id=session_id,
+            user_id=str(getattr(current_user, "id", "") or "") or None,
+            error_type="error_validation",
+            message="input_rejected",
+            jurisdiction=payload.jurisdiction,
         )
         return build_safety_error_response(
             status_code=422,
@@ -295,6 +362,14 @@ def legal_query(
             response_status="blocked",
             total_duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
+        _safe_track_error(
+            db,
+            session_id=session_id,
+            user_id=str(getattr(current_user, "id", "") or "") or None,
+            error_type="error_validation",
+            message="rate_limited",
+            jurisdiction=payload.jurisdiction,
+        )
         return build_safety_error_response(
             status_code=429,
             request_id=request_id,
@@ -315,6 +390,14 @@ def legal_query(
     # Protective mode: reduce max query length when active
     if pm_active and len(effective_query) > pm_status["effective_max_query_length"]:
         effective_query = effective_query[:pm_status["effective_max_query_length"]].rstrip()
+    clarification_turn = prepare_legal_query_turn(
+        query=effective_query,
+        facts=payload.facts,
+        metadata=metadata,
+    )
+    effective_query = clarification_turn.effective_query
+    effective_facts = clarification_turn.merged_facts
+    metadata = clarification_turn.metadata
     update_beta_observability_context(
         observability_context,
         normalized_query=effective_query,
@@ -329,7 +412,7 @@ def legal_query(
             user_query_normalized=effective_query,
             jurisdiction_requested=payload.jurisdiction,
             forum_requested=payload.forum,
-            facts=payload.facts,
+            facts=effective_facts,
             metadata=metadata,
         )
         processing_log_id = processing_log.id
@@ -344,7 +427,7 @@ def legal_query(
             forum=payload.forum,
             top_k=payload.top_k,
             document_mode=payload.document_mode,
-            facts=payload.facts,
+            facts=effective_facts,
             metadata=metadata,
             db=db,
             observability_context=observability_context,
@@ -360,7 +443,7 @@ def legal_query(
                 user_query_normalized=effective_query,
                 jurisdiction_requested=payload.jurisdiction,
                 forum_requested=payload.forum,
-                facts=payload.facts,
+                facts=effective_facts,
                 metadata=metadata,
                 error_message=exc.message,
             )
@@ -400,6 +483,14 @@ def legal_query(
             response_status="blocked",
             total_duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
+        _safe_track_error(
+            db,
+            session_id=session_id,
+            user_id=str(getattr(current_user, "id", "") or "") or None,
+            error_type="error_backend",
+            message=exc.message,
+            jurisdiction=payload.jurisdiction,
+        )
         return build_safety_error_response(
             status_code=500,
             request_id=exc.request_id,
@@ -428,6 +519,7 @@ def legal_query(
     response_dict = dict(result.final_output.api_payload)
     response_dict.setdefault("warnings", [])
     response_dict.setdefault("request_id", request_id)
+    response_dict.setdefault("session_id", session_id)
     response_dict.setdefault("pipeline_version", PIPELINE_VERSION)
     response_dict.setdefault("orchestrator_version", PIPELINE_VERSION)
     response_dict.setdefault("safety_status", input_guardrail["safety_status"])
@@ -539,7 +631,7 @@ def legal_query(
                 jurisdiction=effective_jurisdiction,
                 forum=effective_forum,
                 document_mode=effective_document_mode,
-                facts=payload.facts,
+                facts=effective_facts,
                 conversation_id=conversation_id,
             )
             saved_consulta_id = consulta.id
@@ -625,8 +717,19 @@ def legal_query(
     response_dict["persistence_warning"] = persistence_warning
     response_dict["learning_log_id"] = learning_log_id
     response_dict["request_id"] = response_dict.get("request_id") or request_id
+    response_dict["session_id"] = response_dict.get("session_id") or session_id
     response_dict["orchestrator_version"] = PIPELINE_VERSION
     response_dict["excluded_from_learning"] = excluded_from_learning
+    _safe_track_session_cycle(
+        db,
+        session_id=session_id,
+        user_id=str(getattr(current_user, "id", "") or "") or None,
+        query=payload.query,
+        jurisdiction=effective_jurisdiction,
+        case_domain=response_dict.get("case_domain"),
+        conversational=response_dict.get("conversational"),
+        metadata=metadata,
+    )
     update_beta_observability_context(
         observability_context,
         jurisdiction=effective_jurisdiction,

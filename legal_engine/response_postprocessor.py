@@ -111,6 +111,12 @@ class ResponsePostprocessor:
         return payload
 
     def _build_response_text(self, payload: dict[str, Any]) -> str:
+        conversational = payload.get("conversational") or {}
+        if conversational.get("should_ask_first"):
+            guided_response = str(conversational.get("guided_response") or "").strip()
+            if guided_response:
+                return guided_response
+
         generated_document = str(payload.get("generated_document") or "").strip()
         if generated_document:
             return generated_document

@@ -106,6 +106,8 @@ def _build_result(*, blocking_factor: str = "none", fallback_used: bool = False)
 @pytest.fixture
 def api_overrides(monkeypatch):
     reset_usage_guardrails()
+    tracked_cycles: list[dict[str, object]] = []
+    tracked_errors: list[dict[str, object]] = []
 
     def _override_get_db():
         yield SimpleNamespace()
@@ -123,11 +125,46 @@ def api_overrides(monkeypatch):
         "save_consulta",
         lambda **kwargs: SimpleNamespace(id="consulta-1", created_at=datetime.now(timezone.utc)),
     )
+    monkeypatch.setattr(
+        legal_query_module.query_logging_service,
+        "create_processing_log",
+        lambda *args, **kwargs: SimpleNamespace(id="log-1"),
+    )
+    monkeypatch.setattr(
+        legal_query_module.query_logging_service,
+        "complete_log",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        legal_query_module.query_logging_service,
+        "fail_log",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        legal_query_module.learning_log_service,
+        "save_learning_log",
+        lambda *args, **kwargs: SimpleNamespace(id="learning-log-1"),
+    )
     monkeypatch.setattr(legal_query_module, "record_safety_event", lambda *args, **kwargs: None)
     monkeypatch.setattr(legal_query_module, "build_chat_log_entry", lambda **kwargs: kwargs)
     monkeypatch.setattr(legal_query_module, "log_chat_interaction", lambda entry: None)
+    monkeypatch.setattr(
+        legal_query_module.session_tracking_service,
+        "track_legal_query_cycle",
+        lambda *args, **kwargs: tracked_cycles.append(kwargs),
+    )
+    monkeypatch.setattr(
+        legal_query_module.session_tracking_service,
+        "track_backend_error",
+        lambda *args, **kwargs: tracked_errors.append(kwargs),
+    )
+    monkeypatch.setattr(
+        legal_query_module.session_tracking_service,
+        "ensure_session_id",
+        lambda session_id=None: str(session_id or "generated-session-id"),
+    )
 
-    yield
+    yield {"tracked_cycles": tracked_cycles, "tracked_errors": tracked_errors}
     reset_usage_guardrails()
     app.dependency_overrides.clear()
 
@@ -187,3 +224,81 @@ async def test_endpoint_wraps_internal_orchestrator_errors(client, api_overrides
     assert response.status_code == 500
     payload = response.json()
     assert payload["detail"]["request_id"] == "req-error"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_merges_clarification_context_before_running_orchestrator(client, api_overrides, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _run(**kwargs):
+        captured.update(kwargs)
+        return _build_result()
+
+    monkeypatch.setattr(legal_query_module._orchestrator, "run", _run)
+
+    response = await client.post(
+        "/api/legal-query",
+        json={
+            "query": "Es unilateral y hay hijos",
+            "jurisdiction": "jujuy",
+            "metadata": {
+                "clarification_context": {
+                    "base_query": "Quiero divorciarme",
+                    "case_domain": "divorcio",
+                    "last_question": "¿El divorcio sera de comun acuerdo o unilateral?",
+                    "asked_questions": ["¿El divorcio sera de comun acuerdo o unilateral?"],
+                    "known_facts": {},
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["query"] == "Quiero divorciarme. Aclaraciones del usuario: divorcio unilateral; hay hijos; no hay acuerdo."
+    assert captured["facts"]["divorcio_modalidad"] == "unilateral"
+    assert captured["facts"]["hay_hijos"] is True
+    assert captured["facts"]["hay_acuerdo"] is False
+
+
+@pytest.mark.asyncio
+async def test_endpoint_registers_tracking_cycle_events(client, api_overrides, monkeypatch):
+    monkeypatch.setattr(legal_query_module._orchestrator, "run", lambda **kwargs: _build_result())
+
+    response = await client.post(
+        "/api/legal-query",
+        json={
+            "query": "consulta de alimentos",
+            "jurisdiction": "jujuy",
+            "metadata": {"session_id": "sess-123"},
+        },
+    )
+
+    assert response.status_code == 200
+    tracked = api_overrides["tracked_cycles"]
+    assert len(tracked) == 1
+    assert tracked[0]["session_id"] == "sess-123"
+    assert tracked[0]["query"] == "consulta de alimentos"
+    assert tracked[0]["case_domain"] == "alimentos"
+    assert tracked[0]["metadata"]["session_id"] == "sess-123"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_tracking_failure_does_not_break_legal_query(client, api_overrides, monkeypatch):
+    monkeypatch.setattr(legal_query_module._orchestrator, "run", lambda **kwargs: _build_result())
+    monkeypatch.setattr(
+        legal_query_module.session_tracking_service,
+        "track_legal_query_cycle",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("tracking failed")),
+    )
+
+    response = await client.post(
+        "/api/legal-query",
+        json={
+            "query": "consulta de alimentos",
+            "jurisdiction": "jujuy",
+            "metadata": {"session_id": "sess-safe"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "sess-safe"

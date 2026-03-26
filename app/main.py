@@ -13,6 +13,7 @@ from app.api.learning import router as learning_router
 from app.api.learning_control import router as learning_control_router
 from app.api.learning_observability import router as learning_observability_router
 from app.api.legal_query import router as legal_query_router
+from app.api.session_analytics import router as session_analytics_router
 from app.api.auto_healing import router as auto_healing_router
 from app.api.monitoring import router as monitoring_router
 from app.api.safety import router as safety_router
@@ -53,6 +54,7 @@ async def lifespan(_app: FastAPI):
     import app.models.orchestrator_config_snapshot  # noqa: F401
     import app.models.orchestrator_tuning_event  # noqa: F401
     import app.models.system_safety_event  # noqa: F401
+    import app.models.session_analytics  # noqa: F401
     import app.services.learning_runtime_config_store  # noqa: F401
     import app.db.user_models  # noqa: F401
     from app.db.database import SessionLocal, init_db
@@ -133,6 +135,7 @@ app.include_router(learning_router)
 app.include_router(learning_control_router)
 app.include_router(learning_observability_router)
 app.include_router(legal_query_router)
+app.include_router(session_analytics_router)
 app.include_router(monitoring_router)
 app.include_router(auto_healing_router)
 app.include_router(safety_router)

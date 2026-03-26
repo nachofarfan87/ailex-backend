@@ -10,6 +10,7 @@ from app.db.database import Base
 
 import app.db.models  # noqa: F401
 import app.db.user_models  # noqa: F401
+import app.models.session_analytics  # noqa: F401
 
 
 config = context.config

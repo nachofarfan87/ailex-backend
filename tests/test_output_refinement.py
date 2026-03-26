@@ -304,3 +304,29 @@ def test_quick_start_without_prefix_gets_normalized():
         "reasoning": {"short_answer": "Cuerpo del analisis."},
     })
     assert result.response_text.startswith("Primer paso recomendado: Definir la via procesal.")
+
+
+def test_response_text_prioritizes_single_guiding_question_when_ask_first_is_active():
+    result = _postprocess({
+        "query": "Quiero divorciarme",
+        "pipeline_version": "v1",
+        "reasoning": {
+            "short_answer": "El divorcio puede encuadrarse, pero la estrategia depende de mas datos.",
+            "applied_analysis": "Analisis extenso que no deberia dominar la respuesta en este punto.",
+        },
+        "case_strategy": {
+            "strategic_narrative": "Narrativa extensa que debe quedar en segundo plano.",
+        },
+        "conversational": {
+            "should_ask_first": True,
+            "guided_response": (
+                "Para orientarte bien, primero necesito saber si el divorcio sera de comun acuerdo "
+                "o unilateral, porque eso cambia la estrategia y la presentacion inicial."
+            ),
+        },
+    })
+
+    assert result.response_text == (
+        "Para orientarte bien, primero necesito saber si el divorcio sera de comun acuerdo "
+        "o unilateral, porque eso cambia la estrategia y la presentacion inicial."
+    )

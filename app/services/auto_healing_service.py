@@ -50,6 +50,64 @@ from app.services.safety_classifier import (
 from app.services.utc import utc_now
 
 
+_ACTION_PRIORITY_ORDER = {
+    "high": 0,
+    "medium": 1,
+    "low": 2,
+    "info": 3,
+    "positive": 4,
+}
+
+
+def build_recommended_actions(insights: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """
+    Convierte insights analiticos en acciones sugeridas auditables.
+
+    No ejecuta cambios sobre el sistema. Solo prepara una salida reversible
+    y estable para futuras capas de auto-healing.
+    """
+    normalized_insights = list(insights or [])
+    actions: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for insight in normalized_insights:
+        action = str(insight.get("suggested_action") or "").strip()
+        reason = str(insight.get("code") or "").strip()
+        priority = _normalize_action_priority(insight.get("severity"))
+        if not action or not reason:
+            continue
+        key = (action.casefold(), reason.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        actions.append(
+            {
+                "action": action,
+                "reason": reason,
+                "priority": priority,
+            }
+        )
+
+    actions.sort(key=lambda item: (_ACTION_PRIORITY_ORDER.get(item["priority"], 5), item["action"]))
+    return actions
+
+
+def get_primary_action(insights: list[dict[str, Any]] | None) -> dict[str, str] | None:
+    actions = build_recommended_actions(insights)
+    if not actions:
+        return None
+    return actions[0]
+
+
+def _normalize_action_priority(severity: Any) -> str:
+    normalized = str(severity or "").strip().lower()
+    if normalized in {"high", "medium", "low"}:
+        return normalized
+    if normalized == "positive":
+        return "low"
+    return "medium"
+
+
 # ─── Aplicación de acciones ──────────────────────────────────────────────────
 
 def _apply_action(

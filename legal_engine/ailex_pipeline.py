@@ -65,6 +65,8 @@ class PipelineResult:
     forum: Optional[str]
     case_domain: Optional[str] = None
     case_domains: List[str] = field(default_factory=list)
+    facts: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     retrieved_items: List[Dict[str, Any]] = field(default_factory=list)
     context: Dict[str, Any] = field(default_factory=dict)
@@ -89,6 +91,7 @@ class PipelineResult:
     case_strategy: Dict[str, Any] = field(default_factory=dict)
     legal_strategy: Dict[str, Any] = field(default_factory=dict)
     output_modes: Dict[str, Any] = field(default_factory=dict)
+    conversational: Dict[str, Any] = field(default_factory=dict)
     generated_document: Optional[str] = None
     quick_start: Optional[str] = None
 
@@ -659,6 +662,8 @@ class AilexPipeline:
             "forum": resolved_forum,
             "case_domain": case_domain,
             "case_domains": case_domains,
+            "facts": self._normalize_obj(request.facts or {}),
+            "metadata": self._normalize_obj(request.metadata or {}),
             "retrieved_items": self._normalize_list_of_dicts(retrieved_items),
             "context": self._normalize_obj(context),
             "classification": self._normalize_obj(classification),
@@ -694,6 +699,8 @@ class AilexPipeline:
             forum=response_payload.get("forum"),
             case_domain=response_payload.get("case_domain"),
             case_domains=list(response_payload.get("case_domains") or []),
+            facts=self._normalize_obj(response_payload.get("facts")),
+            metadata=self._normalize_obj(response_payload.get("metadata")),
             retrieved_items=self._normalize_list_of_dicts(response_payload.get("retrieved_items")),
             context=self._normalize_obj(response_payload.get("context")),
             classification=self._normalize_obj(response_payload.get("classification")),
@@ -717,6 +724,7 @@ class AilexPipeline:
             case_strategy=self._normalize_obj(response_payload.get("case_strategy")),
             legal_strategy=self._normalize_obj(response_payload.get("legal_strategy")),
             output_modes=self._normalize_obj(response_payload.get("output_modes")),
+            conversational=self._normalize_obj(response_payload.get("conversational")),
             generated_document=response_payload.get("generated_document"),
             quick_start=response_payload.get("quick_start"),
             warnings=list(response_payload.get("warnings") or []),
