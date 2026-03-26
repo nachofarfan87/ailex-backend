@@ -48,6 +48,7 @@ _KEYWORD_DOMAIN: list[tuple[tuple[str, ...], str]] = [
         (
             "divorcio", "divorciar", "disolucion del vinculo",
             "disolucion vincular", "separacion personal",
+            "separarme legalmente", "separacion legal",
         ),
         "divorcio",
     ),
@@ -135,8 +136,14 @@ _CROSS_DOMAIN_FOCUS: dict[frozenset[str], str] = {
 }
 
 
-def _detect_domains(action_slug: str, text: str) -> list[str]:
-    """Return *all* matching domains, ordered by ``_DOMAIN_PRIORITY``."""
+def _detect_domains(action_slug: str, text: str, *, query_text: str = "") -> list[str]:
+    """Return *all* matching domains, ordered by ``_DOMAIN_PRIORITY``.
+
+    When the *query itself* contains an explicit divorce intent signal,
+    divorcio is forced to the first position regardless of priority
+    ordering — the user's nuclear intention overrides the default
+    urgency-based ranking.
+    """
     found: set[str] = set()
 
     slug = action_slug.strip()
@@ -148,7 +155,113 @@ def _detect_domains(action_slug: str, text: str) -> list[str]:
             found.add(domain)
 
     priority_index = {d: i for i, d in enumerate(_DOMAIN_PRIORITY)}
-    return sorted(found, key=lambda d: priority_index.get(d, 999))
+    sorted_domains = sorted(found, key=lambda d: priority_index.get(d, 999))
+
+    # --- Explicit divorce intent override ---
+    # If the user's own query expresses direct divorce intention, force
+    # divorcio as primary.  Secondary domains remain but cannot displace it.
+    if "divorcio" in sorted_domains and _query_has_explicit_divorce_intent(query_text):
+        sorted_domains = ["divorcio"] + [d for d in sorted_domains if d != "divorcio"]
+
+    return sorted_domains
+
+
+# Patterns that unambiguously express "I want a divorce" in the user query.
+_EXPLICIT_DIVORCE_INTENT: tuple[str, ...] = (
+    "quiero divorciarme",
+    "me quiero divorciar",
+    "quiero el divorcio",
+    "iniciar divorcio",
+    "iniciar el divorcio",
+    "pedir divorcio",
+    "pedir el divorcio",
+    "tramitar divorcio",
+    "tramitar el divorcio",
+    "separarme legalmente",
+    "separacion legal",
+    "divorcio vincular",
+    "disolucion del vinculo",
+)
+
+
+def _query_has_explicit_divorce_intent(query_text: str) -> bool:
+    """Return True if the normalized *query* (not enriched text) expresses
+    direct divorce intent.  A bare mention of 'divorcio' as the sole
+    meaningful token also qualifies (e.g. the user typed just 'divorcio').
+    """
+    if not query_text:
+        return False
+    q = query_text.strip()
+    # Bare single-word 'divorcio'
+    if q in ("divorcio", "divorciarse", "divorciarme"):
+        return True
+    return any(pattern in q for pattern in _EXPLICIT_DIVORCE_INTENT)
+
+
+# ---------------------------------------------------------------------------
+# Downstream alignment: action_slug ↔ case_domain
+# ---------------------------------------------------------------------------
+
+# Canonical slug per domain family — used when an action_slug needs correction.
+_DOMAIN_TO_CANONICAL_SLUG: dict[str, str] = {
+    "divorcio": "divorcio_unilateral",
+    "alimentos": "alimentos_hijos",
+    "cuidado_personal": "cuidado_personal",
+    "regimen_comunicacional": "regimen_comunicacional",
+    "conflicto_patrimonial": "conflicto_patrimonial",
+}
+
+
+def align_classification_with_domain(
+    classification: dict[str, Any],
+    case_domain: str | None,
+    query: str,
+) -> dict[str, Any]:
+    """Ensure action_slug is consistent with case_domain when explicit intent
+    forced a domain override.
+
+    Returns a *new* classification dict (shallow copy) if correction was
+    needed, or the original if already aligned.
+
+    Only corrects when ALL of the following hold:
+      1. case_domain is set and differs from the slug's domain family.
+      2. The user's query contains explicit intent for the winning domain.
+      3. The slug maps to a different domain family.
+
+    This prevents downstream consumers (model_library, argument generator)
+    from operating on a stale slug while case_domain has already been
+    corrected by the domain-priority override.
+    """
+    if not case_domain:
+        return classification
+
+    action_slug = str(classification.get("action_slug") or "").strip()
+    slug_domain = _SLUG_TO_DOMAIN.get(action_slug)
+
+    # Already aligned — nothing to do.
+    if slug_domain == case_domain:
+        return classification
+
+    # Only override if the user expressed explicit intent for the winning
+    # domain.  Currently only divorce-override is implemented; extend the
+    # check here if other domains need similar treatment.
+    query_text = _normalize_text(query)
+    needs_override = False
+    if case_domain == "divorcio" and _query_has_explicit_divorce_intent(query_text):
+        needs_override = True
+
+    if not needs_override:
+        return classification
+
+    canonical_slug = _DOMAIN_TO_CANONICAL_SLUG.get(case_domain)
+    if not canonical_slug:
+        return classification
+
+    corrected = dict(classification)
+    corrected["action_slug"] = canonical_slug
+    corrected["_original_action_slug"] = action_slug
+    corrected["_slug_aligned_to_domain"] = case_domain
+    return corrected
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +296,7 @@ def build_case_profile(
         normative_reasoning, procedural_plan, facts,
     )
 
-    domains = _detect_domains(action_slug, text)
+    domains = _detect_domains(action_slug, text, query_text=query_text)
     if not domains:
         return _empty_profile()
 

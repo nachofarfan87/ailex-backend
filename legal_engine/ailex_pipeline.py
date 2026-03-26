@@ -25,7 +25,7 @@ from legal_engine import (
     QuestionEngine,
 )
 from legal_engine.case_evaluation_engine import CaseEvaluationEngine
-from legal_engine.case_profile_builder import build_case_profile
+from legal_engine.case_profile_builder import build_case_profile, align_classification_with_domain
 from legal_engine.case_strategy_builder import build_case_strategy, sanitize_strategy_output, dedupe_domains
 from legal_engine.conflict_evidence_engine import ConflictEvidenceEngine
 from legal_engine.evidence_reasoning_linker import EvidenceReasoningLinker
@@ -270,6 +270,16 @@ class AilexPipeline:
         )
         initial_case_domain = str(initial_case_profile.get("case_domain") or "").strip() or None
 
+        # 6b. Early slug alignment — ensures model selection (step 16) uses
+        #     the corrected action_slug when explicit user intent forced a
+        #     domain override (e.g. "quiero divorciarme" but classifier picked
+        #     alimentos_hijos).  Must run BEFORE select_model().
+        classification = align_classification_with_domain(
+            classification=classification,
+            case_domain=initial_case_domain,
+            query=request.query,
+        )
+
         # 7. Citation validation
         citation_validation = self._run_citation_validation(context, reasoning)
 
@@ -448,6 +458,17 @@ class AilexPipeline:
         case_profile["procedural_case_state"] = procedural_case_state
         case_domain = str(case_profile.get("case_domain") or "").strip() or None
         case_domains = dedupe_domains([str(item).strip() for item in (case_profile.get("case_domains") or []) if str(item).strip()])
+
+        # 17b. Safety-net re-alignment: the primary alignment ran at step 6b
+        # (before model selection), but if the *final* case_profile resolved a
+        # different domain than the initial one, re-align here to keep
+        # downstream consumers consistent.
+        classification = align_classification_with_domain(
+            classification=classification,
+            case_domain=case_domain,
+            query=request.query,
+        )
+
         normative_reasoning = self._sanitize_normative_reasoning(
             normative_reasoning=normative_reasoning,
             classification=classification,
@@ -1780,6 +1801,7 @@ class AilexPipeline:
         "fallback",
         "generic",
         "no se encontro un patron",
+        "no se encontro un modelo aplicable",
         "no existe handler",
         "modelo no aplicable",
         "se rechazaron",

@@ -1141,9 +1141,84 @@ def _dedupe(items: list[str]) -> list[str]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Anti-contamination guard: divorce-primary cases
+# ---------------------------------------------------------------------------
+
+# Phrases that belong to the alimentos domain and must not appear in
+# primary-block text when the case domain is divorcio *and* alimentos
+# is not substantiated by concrete facts.
+_ALIMENTOS_CONTAMINANT_TOKENS: tuple[str, ...] = (
+    "cuota provisoria",
+    "alimentante",
+    "incumplimiento alimentario",
+    "gastos del hijo",
+    "gastos de la hija",
+    "progenitor demandado",
+    "partida de nacimiento del hijo",
+    "monto de cuota",
+    "retencion alimentaria",
+    "cuota alimentaria",
+    "deuda alimentaria",
+)
+
+
+def _has_alimentos_contaminant(text: str) -> bool:
+    """Return True if text contains language that belongs to alimentos domain."""
+    normalized = _normalize(text)
+    return any(token in normalized for token in _ALIMENTOS_CONTAMINANT_TOKENS)
+
+
+def _guard_divorce_primary_contamination(strategy: dict[str, Any], case_profile: dict[str, Any]) -> None:
+    """When case_domain is 'divorcio' and alimentos is NOT a substantiated
+    scenario (i.e. no concrete alimentos facts exist), remove alimentos-
+    specific language from the primary strategy blocks.
+
+    This prevents the strategy builder from contaminating the divorce
+    narrative with cuota provisoria, alimentante, incumplimiento alimentario
+    etc. when the user simply asked for a divorce.
+
+    When 'hijos' IS a divorce scenario, generic references to 'resolver
+    alimentos de los hijos' are allowed — they are part of the propuesta
+    reguladora, not an alimentos-primary strategy.
+    """
+    domain = str(case_profile.get("case_domain") or "").strip()
+    if domain != "divorcio":
+        return
+
+    scenarios = set(case_profile.get("scenarios") or set())
+    # If the divorce case legitimately includes explicit alimentos facts
+    # (incumplimiento, cuota_provisoria, etc.) don't filter.
+    alimentos_substantiated = bool(scenarios & {
+        "incumplimiento", "cuota_provisoria", "ascendientes",
+        "hijo_mayor", "hijo_mayor_estudiante", "mixto_conyuge",
+    })
+    if alimentos_substantiated:
+        return
+
+    # Filter contaminants from list-based sections
+    for key in ("conflict_summary", "recommended_actions", "risk_analysis", "procedural_focus"):
+        section = strategy.get(key)
+        if isinstance(section, list):
+            strategy[key] = [
+                item for item in section
+                if not _has_alimentos_contaminant(item)
+            ]
+
+    # Filter contaminant paragraphs from narrative
+    narrative = strategy.get("strategic_narrative", "")
+    if isinstance(narrative, str) and _has_alimentos_contaminant(narrative):
+        paragraphs = narrative.split("\n\n")
+        clean = [p for p in paragraphs if not _has_alimentos_contaminant(p)]
+        strategy["strategic_narrative"] = "\n\n".join(clean)
+
+
 def _apply_sensitive_strategy_validations(strategy: dict[str, Any], query: str, case_profile: dict[str, Any]) -> None:
     normalized_query = _normalize(query)
     scenarios = set(case_profile.get("scenarios") or set())
+
+    # --- Anti-contamination: divorce primary must not be overridden by alimentos language ---
+    _guard_divorce_primary_contamination(strategy, case_profile)
 
     if "hijo_mayor_no_estudia" in scenarios or "no estudia" in normalized_query:
         strategy["recommended_actions"] = [
@@ -1223,6 +1298,7 @@ def _normalize(text: str) -> str:
 
 _NOISE_PATTERNS: list[str] = [
     "no se encontro un patron",
+    "no se encontro un modelo aplicable",
     "fallback generico",
     "no existe handler",
     "modelo no aplicable",
