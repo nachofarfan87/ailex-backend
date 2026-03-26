@@ -16,6 +16,13 @@ from app.db.database import get_db
 from app.db.user_models import User
 from app.services import consulta_service
 from app.services import learning_log_service, query_logging_service
+from app.services.beta_observability_helpers import derive_response_status
+from app.services.beta_observability_service import (
+    fail_beta_observability_context,
+    finalize_beta_observability_context,
+    start_beta_observability_context,
+    update_beta_observability_context,
+)
 from app.services.chat_logger import build_chat_log_entry, log_chat_interaction
 from app.services.learning_safety_service import (
     infer_fallback_type,
@@ -181,11 +188,28 @@ def legal_query(
     metadata["request_id"] = request_id
     source_ip = _extract_source_ip(request)
     processing_log_id: Optional[str] = None
+    session_id = _extract_session_id(metadata)
 
     pm_status = evaluate_protective_mode()
     pm_active = pm_status["protective_mode_active"]
+    observability_context = start_beta_observability_context(
+        request_id=request_id,
+        trace_id=request_id,
+        query=payload.query,
+        jurisdiction=payload.jurisdiction,
+        forum=payload.forum,
+        user_id=str(getattr(current_user, "id", "") or "") or None,
+        session_id=session_id,
+        protective_mode_active=pm_active,
+        metadata={"route_path": str(request.url.path)},
+    )
 
     input_guardrail = evaluate_query_input(payload.query)
+    update_beta_observability_context(
+        observability_context,
+        normalized_query=input_guardrail.get("normalized_query"),
+        safety_status=input_guardrail.get("safety_status"),
+    )
     if input_guardrail["decision"] == "rejected":
         safety_outcome = resolve_safety_outcome(input_guardrail)
         sev = classify_severity(
@@ -209,6 +233,12 @@ def legal_query(
             detail={"input_guardrail": input_guardrail},
             severity=sev,
             protective_mode_active=pm_active,
+        )
+        fail_beta_observability_context(
+            observability_context,
+            error_message="input_rejected",
+            response_status="blocked",
+            total_duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
         return build_safety_error_response(
             status_code=422,
@@ -254,6 +284,16 @@ def legal_query(
             severity=sev,
             protective_mode_active=pm_active,
         )
+        update_beta_observability_context(
+            observability_context,
+            safety_status=safety_outcome["safety_status"],
+        )
+        fail_beta_observability_context(
+            observability_context,
+            error_message="rate_limited",
+            response_status="blocked",
+            total_duration_ms=int((time.perf_counter() - start_time) * 1000),
+        )
         return build_safety_error_response(
             status_code=429,
             request_id=request_id,
@@ -274,6 +314,10 @@ def legal_query(
     # Protective mode: reduce max query length when active
     if pm_active and len(effective_query) > pm_status["effective_max_query_length"]:
         effective_query = effective_query[:pm_status["effective_max_query_length"]].rstrip()
+    update_beta_observability_context(
+        observability_context,
+        normalized_query=effective_query,
+    )
 
     try:
         processing_log = query_logging_service.create_processing_log(
@@ -302,6 +346,7 @@ def legal_query(
             facts=payload.facts,
             metadata=metadata,
             db=db,
+            observability_context=observability_context,
         )
     except QueryOrchestratorError as exc:
         try:
@@ -343,6 +388,16 @@ def legal_query(
             detail={"message": exc.message},
             severity=error_sev,
             protective_mode_active=pm_active,
+        )
+        update_beta_observability_context(
+            observability_context,
+            safety_status="degraded",
+        )
+        fail_beta_observability_context(
+            observability_context,
+            error_message=exc.message,
+            response_status="blocked",
+            total_duration_ms=int((time.perf_counter() - start_time) * 1000),
         )
         return build_safety_error_response(
             status_code=500,
@@ -494,7 +549,6 @@ def legal_query(
             persistence_warning = _build_persistence_warning()
 
     response_time_ms = int((time.perf_counter() - start_time) * 1000)
-    session_id = _extract_session_id(payload.metadata)
     response_summary = _extract_response_summary(response_dict)
     learning_log_id: Optional[str] = None
 
@@ -572,6 +626,41 @@ def legal_query(
     response_dict["request_id"] = response_dict.get("request_id") or request_id
     response_dict["orchestrator_version"] = PIPELINE_VERSION
     response_dict["excluded_from_learning"] = excluded_from_learning
+    update_beta_observability_context(
+        observability_context,
+        jurisdiction=effective_jurisdiction,
+        user_id=str(getattr(current_user, "id", "") or "") or None,
+        session_id=session_id,
+        final_confidence=response_dict.get("confidence_score", response_dict.get("confidence")),
+        fallback_detected=bool(response_dict.get("fallback_used")),
+        sanitized_output=bool(getattr(result.final_output, "sanitized_output", False)),
+        protective_mode_active=pm_active,
+        safety_status=response_dict.get("safety_status"),
+        internal_warnings=[str(item).strip() for item in (result.final_output.warnings or []) if str(item).strip()],
+        top_level_domains_detected=[str(item).strip() for item in (response_dict.get("case_domains") or []) if str(item).strip()],
+        final_case_domain=response_dict.get("case_domain"),
+        final_action_slug=response_dict.get("action_slug"),
+        strategy_mode=response_dict.get("strategy_mode"),
+        dominant_factor=response_dict.get("dominant_factor"),
+        citation_validation_status=response_dict.get("citation_validation", {}).get("status"),
+        stage_durations_ms={
+            "normalization_ms": int(getattr(result.timings, "normalization_ms", 0) or 0),
+            "orchestrator_pipeline_ms": int(getattr(result.timings, "pipeline_ms", 0) or 0),
+            "orchestrator_classification_ms": int(getattr(result.timings, "classification_ms", 0) or 0),
+            "orchestrator_retrieval_ms": int(getattr(result.timings, "retrieval_ms", 0) or 0),
+            "orchestrator_strategy_ms": int(getattr(result.timings, "strategy_ms", 0) or 0),
+            "postprocess_ms": int(getattr(result.timings, "postprocess_ms", 0) or 0),
+            "final_assembly_ms": int(getattr(result.timings, "final_assembly_ms", 0) or 0),
+        },
+    )
+    finalize_beta_observability_context(
+        observability_context,
+        response_status=derive_response_status(
+            fallback_detected=bool(response_dict.get("fallback_used")),
+            safety_status=response_dict.get("safety_status"),
+        ),
+        total_duration_ms=response_time_ms,
+    )
 
     return LegalQueryResponse(**response_dict)
 

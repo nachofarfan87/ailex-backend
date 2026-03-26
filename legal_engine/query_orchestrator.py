@@ -132,6 +132,7 @@ class QueryOrchestrator:
         facts: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
         db: Any | None = None,
+        observability_context: Any | None = None,
     ) -> OrchestratorResult:
         total_start = time.perf_counter()
         timings = OrchestratorTimings()
@@ -158,6 +159,7 @@ class QueryOrchestrator:
                 normalized=normalized,
                 db=db,
                 config=pipeline_config,
+                observability_context=observability_context,
             )
         except Exception as exc:
             raise QueryOrchestratorError(normalized.request_id, "Fallo controlado durante la orquestacion juridica.") from exc
@@ -368,6 +370,7 @@ class QueryOrchestrator:
         normalized: NormalizedOrchestratorInput,
         db: Any | None,
         config: dict[str, Any],
+        observability_context: Any | None = None,
     ) -> Any:
         if hasattr(self.pipeline, "run_request") and callable(self.pipeline.run_request):
             request = PipelineRequest(
@@ -380,7 +383,12 @@ class QueryOrchestrator:
                 facts=normalized.facts,
                 metadata=normalized.metadata,
             )
-            return self.pipeline.run_request(request, db=db, config=config)
+            return self.pipeline.run_request(
+                request,
+                db=db,
+                config=config,
+                observability_context=observability_context,
+            )
 
         return self.pipeline.run(
             query=normalized.query,
@@ -393,6 +401,7 @@ class QueryOrchestrator:
             metadata=normalized.metadata,
             db=db,
             config=config,
+            observability_context=observability_context,
         )
 
     def _apply_safe_light_mode(self, payload: dict[str, Any], decision: OrchestratorDecision) -> None:

@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services.beta_observability_helpers import (
+    detect_interdomain_conflict,
+    extract_citation_validation_status,
+    extract_hallucination_guard_status,
+    extract_secondary_domains,
+    extract_selected_model_fields,
+)
+from app.services.beta_observability_service import update_beta_observability_context
 from legal_engine import (
     ActionClassifier,
     ArgumentGenerator,
@@ -181,6 +190,7 @@ class AilexPipeline:
         metadata: Optional[Dict[str, Any]] = None,
         db: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
+        observability_context: Optional[Any] = None,
     ) -> PipelineResult:
         request = PipelineRequest(
             query=query,
@@ -192,19 +202,35 @@ class AilexPipeline:
             facts=facts or {},
             metadata=metadata or {},
         )
-        return self.run_request(request, db=db, config=config)
+        return self.run_request(
+            request,
+            db=db,
+            config=config,
+            observability_context=observability_context,
+        )
 
     def run_request(
         self,
         request: PipelineRequest,
         db: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
+        observability_context: Optional[Any] = None,
     ) -> PipelineResult:
         warnings: List[str] = []
         pipeline_config = self._normalize_pipeline_config(config)
 
         # 1. Classification
+        classification_started_at = time.perf_counter()
         classification = self._run_classification(request)
+        self._record_observability_stage(observability_context, "pipeline_classification_ms", classification_started_at)
+        self._update_observability(
+            observability_context,
+            query=request.query,
+            normalized_query=request.query,
+            jurisdiction=request.jurisdiction,
+            forum=request.forum,
+            original_action_slug=str(classification.get("action_slug") or "").strip() or None,
+        )
 
         # 1b. Enrich classification with expediente context when available
         classification = self._enrich_classification_from_expediente(
@@ -259,6 +285,7 @@ class AilexPipeline:
             retrieved_items=retrieved_items,
         )
 
+        initial_case_profile_started_at = time.perf_counter()
         initial_case_profile = build_case_profile(
             query=request.query,
             classification=classification,
@@ -269,19 +296,40 @@ class AilexPipeline:
             facts=request.facts or {},
         )
         initial_case_domain = str(initial_case_profile.get("case_domain") or "").strip() or None
+        self._record_observability_stage(observability_context, "pipeline_initial_case_profile_ms", initial_case_profile_started_at)
+        self._update_observability(
+            observability_context,
+            original_case_domain=initial_case_domain,
+            top_level_domains_detected=[
+                str(item).strip()
+                for item in (initial_case_profile.get("case_domains") or [])
+                if str(item).strip()
+            ],
+        )
 
         # 6b. Early slug alignment — ensures model selection (step 16) uses
         #     the corrected action_slug when explicit user intent forced a
         #     domain override (e.g. "quiero divorciarme" but classifier picked
         #     alimentos_hijos).  Must run BEFORE select_model().
+        alignment_started_at = time.perf_counter()
         classification = align_classification_with_domain(
             classification=classification,
             case_domain=initial_case_domain,
             query=request.query,
         )
+        self._record_observability_stage(observability_context, "pipeline_alignment_ms", alignment_started_at)
+        self._update_observability(
+            observability_context,
+            final_action_slug=str(classification.get("action_slug") or "").strip() or None,
+            slug_aligned_to_domain=bool(classification.get("_original_action_slug")),
+        )
 
         # 7. Citation validation
         citation_validation = self._run_citation_validation(context, reasoning)
+        self._update_observability(
+            observability_context,
+            citation_validation_status=extract_citation_validation_status(citation_validation),
+        )
 
         # 8. Hallucination guard
         hallucination_guard = self._run_hallucination_guard(
@@ -291,6 +339,12 @@ class AilexPipeline:
             citation_validation=citation_validation,
             jurisdiction=resolved_jurisdiction,
             forum=resolved_forum,
+        )
+        hallucination_status, hallucination_flags = extract_hallucination_guard_status(hallucination_guard)
+        self._update_observability(
+            observability_context,
+            hallucination_guard_status=hallucination_status,
+            hallucination_flags=hallucination_flags,
         )
 
         # 9. Procedural strategy
@@ -428,12 +482,18 @@ class AilexPipeline:
         )
         detected_tags = infer_model_tags(tag_signals)
 
+        model_selection_started_at = time.perf_counter()
         model_match = self.model_library.select_model(
             jurisdiction=resolved_jurisdiction,
             forum=resolved_forum,
             action_slug=classification.get("action_slug") or case_structure.get("action_slug"),
             document_kind=resolved_document_kind,
             detected_tags=detected_tags,
+        )
+        self._record_observability_stage(observability_context, "pipeline_model_selection_ms", model_selection_started_at)
+        self._update_observability(
+            observability_context,
+            **extract_selected_model_fields(model_match),
         )
 
         # 16b. Style blueprint
@@ -445,6 +505,7 @@ class AilexPipeline:
         model_match["style_blueprint"] = style_blueprint.to_dict()
 
         # 17. Case profile + case strategy
+        final_case_profile_started_at = time.perf_counter()
         case_profile = build_case_profile(
             query=request.query,
             classification=classification,
@@ -458,6 +519,7 @@ class AilexPipeline:
         case_profile["procedural_case_state"] = procedural_case_state
         case_domain = str(case_profile.get("case_domain") or "").strip() or None
         case_domains = dedupe_domains([str(item).strip() for item in (case_profile.get("case_domains") or []) if str(item).strip()])
+        self._record_observability_stage(observability_context, "pipeline_final_case_profile_ms", final_case_profile_started_at)
 
         # 17b. Safety-net re-alignment: the primary alignment ran at step 6b
         # (before model selection), but if the *final* case_profile resolved a
@@ -468,12 +530,24 @@ class AilexPipeline:
             case_domain=case_domain,
             query=request.query,
         )
+        secondary_domains = extract_secondary_domains(case_domains, case_domain)
+        self._update_observability(
+            observability_context,
+            final_case_domain=case_domain,
+            final_action_slug=str(classification.get("action_slug") or "").strip() or None,
+            domain_override_applied=bool(initial_case_domain and case_domain and initial_case_domain != case_domain),
+            secondary_domains=secondary_domains,
+            had_secondary_domains=bool(secondary_domains),
+            had_interdomain_conflict=detect_interdomain_conflict(case_profile, conflict_evidence, legal_decision),
+            top_level_domains_detected=case_domains,
+        )
 
         normative_reasoning = self._sanitize_normative_reasoning(
             normative_reasoning=normative_reasoning,
             classification=classification,
             case_domain=case_domain,
         )
+        case_strategy_started_at = time.perf_counter()
         case_strategy = sanitize_strategy_output(build_case_strategy(
             query=request.query,
             case_profile=case_profile,
@@ -486,10 +560,16 @@ class AilexPipeline:
             legal_decision=legal_decision,
             procedural_case_state=procedural_case_state,
         ))
+        self._record_observability_stage(observability_context, "pipeline_case_strategy_ms", case_strategy_started_at)
         strategy_mode_override = str(pipeline_config.get("strategy_mode") or "").strip()
         if strategy_mode_override:
             legal_decision["strategic_posture"] = strategy_mode_override
             case_strategy["strategy_mode"] = strategy_mode_override
+        self._update_observability(
+            observability_context,
+            strategy_mode=str(case_strategy.get("strategy_mode") or legal_decision.get("strategic_posture") or "").strip() or None,
+            dominant_factor=str(legal_decision.get("dominant_factor") or "").strip() or None,
+        )
         legal_strategy = {
             "case_domain": case_domain,
             "case_domains": case_domains,
@@ -555,6 +635,18 @@ class AilexPipeline:
             case_domain=case_domain,
             case_strategy=case_strategy,
             case_profile=case_profile,
+        )
+        self._update_observability(
+            observability_context,
+            final_confidence=confidence,
+            fallback_detected=bool(
+                model_match.get("selected_model") is None
+                or model_match.get("match_type") == "none"
+                or model_match.get("fallback_used")
+                or model_match.get("used_fallback")
+                or model_match.get("selection_fallback")
+            ),
+            internal_warnings=self._dedupe_preserve_order(warnings),
         )
 
         return PipelineResult(
@@ -1795,6 +1887,17 @@ class AilexPipeline:
             warnings.append(f"Severidad detectada: {severity}")
 
         return self._dedupe_preserve_order(warnings)
+
+    def _update_observability(self, context: Any, **fields: Any) -> None:
+        update_beta_observability_context(context, **fields)
+
+    def _record_observability_stage(self, context: Any, stage_name: str, started_at: float) -> None:
+        if context is None:
+            return
+        try:
+            context.record_stage_duration(stage_name, started_at)
+        except Exception:
+            self._logger.debug("No se pudo registrar stage de beta observability.", exc_info=True)
 
     _WARNING_NOISE_PATTERNS: List[str] = [
         "fallback generico",

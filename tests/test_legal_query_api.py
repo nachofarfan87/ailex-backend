@@ -110,7 +110,7 @@ def api_overrides(monkeypatch):
     def _override_get_db():
         yield SimpleNamespace()
 
-    app.dependency_overrides[legal_query_module.get_current_user] = lambda: SimpleNamespace(
+    app.dependency_overrides[legal_query_module.get_optional_user] = lambda: SimpleNamespace(
         id="user-1",
         username="tester",
         email="tester@example.com",
@@ -123,6 +123,7 @@ def api_overrides(monkeypatch):
         "save_consulta",
         lambda **kwargs: SimpleNamespace(id="consulta-1", created_at=datetime.now(timezone.utc)),
     )
+    monkeypatch.setattr(legal_query_module, "record_safety_event", lambda *args, **kwargs: None)
     monkeypatch.setattr(legal_query_module, "build_chat_log_entry", lambda **kwargs: kwargs)
     monkeypatch.setattr(legal_query_module, "log_chat_interaction", lambda entry: None)
 

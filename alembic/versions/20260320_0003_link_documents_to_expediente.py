@@ -17,26 +17,95 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
-    op.add_column(
-        "source_documents",
-        sa.Column("expediente_id", sa.String(36), nullable=True),
-    )
-    op.create_index(
-        "ix_source_documents_expediente_id",
-        "source_documents",
-        ["expediente_id"],
-    )
+TABLE_NAME = "source_documents"
+COLUMN_NAME = "expediente_id"
+INDEX_NAME = "ix_source_documents_expediente_id"
+FK_NAME = "fk_source_documents_expediente_id"
+REFERRED_TABLE = "expedientes"
+REFERRED_COLUMNS = ["id"]
+LOCAL_COLUMNS = [COLUMN_NAME]
+
+
+def _has_column(bind: sa.engine.Connection, table_name: str, column_name: str) -> bool:
+    inspector = sa.inspect(bind)
+    return any(column.get("name") == column_name for column in inspector.get_columns(table_name))
+
+
+def _has_index(bind: sa.engine.Connection, table_name: str, index_name: str) -> bool:
+    inspector = sa.inspect(bind)
+    return any(index.get("name") == index_name for index in inspector.get_indexes(table_name))
+
+
+def _has_foreign_key(bind: sa.engine.Connection, table_name: str, fk_name: str) -> bool:
+    inspector = sa.inspect(bind)
+    return any(fk.get("name") == fk_name for fk in inspector.get_foreign_keys(table_name))
+
+
+def _create_foreign_key_if_missing(bind: sa.engine.Connection) -> None:
+    if _has_foreign_key(bind, TABLE_NAME, FK_NAME):
+        return
+
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table(TABLE_NAME, recreate="always") as batch_op:
+            batch_op.create_foreign_key(
+                FK_NAME,
+                REFERRED_TABLE,
+                LOCAL_COLUMNS,
+                REFERRED_COLUMNS,
+            )
+        return
+
     op.create_foreign_key(
-        "fk_source_documents_expediente_id",
-        "source_documents",
-        "expedientes",
-        ["expediente_id"],
-        ["id"],
+        FK_NAME,
+        TABLE_NAME,
+        REFERRED_TABLE,
+        LOCAL_COLUMNS,
+        REFERRED_COLUMNS,
     )
+
+
+def _drop_foreign_key_if_present(bind: sa.engine.Connection) -> None:
+    if not _has_foreign_key(bind, TABLE_NAME, FK_NAME):
+        return
+
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table(TABLE_NAME, recreate="always") as batch_op:
+            batch_op.drop_constraint(FK_NAME, type_="foreignkey")
+        return
+
+    op.drop_constraint(FK_NAME, TABLE_NAME, type_="foreignkey")
+
+
+def upgrade() -> None:
+    bind = op.get_bind()
+
+    if not _has_column(bind, TABLE_NAME, COLUMN_NAME):
+        op.add_column(
+            TABLE_NAME,
+            sa.Column(COLUMN_NAME, sa.String(36), nullable=True),
+        )
+
+    bind = op.get_bind()
+    _create_foreign_key_if_missing(bind)
+
+    bind = op.get_bind()
+    if not _has_index(bind, TABLE_NAME, INDEX_NAME):
+        op.create_index(
+            INDEX_NAME,
+            TABLE_NAME,
+            [COLUMN_NAME],
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_source_documents_expediente_id", "source_documents", type_="foreignkey")
-    op.drop_index("ix_source_documents_expediente_id", table_name="source_documents")
-    op.drop_column("source_documents", "expediente_id")
+    bind = op.get_bind()
+
+    if _has_index(bind, TABLE_NAME, INDEX_NAME):
+        op.drop_index(INDEX_NAME, table_name=TABLE_NAME)
+
+    bind = op.get_bind()
+    _drop_foreign_key_if_present(bind)
+
+    bind = op.get_bind()
+    if _has_column(bind, TABLE_NAME, COLUMN_NAME):
+        op.drop_column(TABLE_NAME, COLUMN_NAME)

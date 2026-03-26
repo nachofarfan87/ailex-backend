@@ -103,6 +103,7 @@ class FinalOutput:
     confidence_label: str = "low"
     fallback_used: bool = False
     fallback_reason: str = ""
+    sanitized_output: bool = False
     warnings: list[str] = field(default_factory=list)
     api_payload: dict[str, Any] = field(default_factory=dict)
 

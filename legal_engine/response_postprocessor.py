@@ -28,8 +28,8 @@ class ResponsePostprocessor:
         retrieval: RetrievalBundle,
         strategy: StrategyBundle,
     ) -> FinalOutput:
-        response_text = self._build_response_text(pipeline_payload)
-        response_text = self._sanitize_text(response_text)
+        raw_response_text = self._build_response_text(pipeline_payload)
+        response_text = self._sanitize_text(raw_response_text)
         response_text = self._apply_prudence(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
@@ -61,6 +61,7 @@ class ResponsePostprocessor:
             confidence_label=str(api_payload.get("confidence_label") or "low"),
             fallback_used=bool(api_payload.get("fallback_used")),
             fallback_reason=str(api_payload.get("fallback_reason") or ""),
+            sanitized_output=response_text != raw_response_text,
             warnings=list(api_payload.get("warnings") or []),
             api_payload=api_payload,
         )
