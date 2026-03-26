@@ -30,9 +30,14 @@ def init_db() -> None:
     """
     Validate DB configuration and connectivity.
 
-    Schema creation and evolution now run through Alembic.
+    Ensure the mapped schema exists, then validate connectivity.
+
+    Alembic remains the primary migration path. ``create_all`` is a safe
+    bootstrap fallback for empty databases so startup does not crash before
+    persisted runtime config can be read.
     """
     settings.validate_runtime_configuration()
+    Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
 

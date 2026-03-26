@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, String, Text
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect
+from sqlalchemy.exc import ProgrammingError
 
 from app.db.database import Base
 from app.services.utc import utc_now
 
 
 CONFIG_VERSION = "v1"
+logger = logging.getLogger(__name__)
 
 
 class LearningRuntimeConfig(Base):
@@ -42,11 +46,37 @@ def save_runtime_config(db: Session, config: dict) -> LearningRuntimeConfig:
 
 
 def load_latest_runtime_config(db: Session):
-    record = (
-        db.query(LearningRuntimeConfig)
-        .order_by(LearningRuntimeConfig.created_at.desc())
-        .first()
-    )
+    bind = db.get_bind()
+    if bind is None:
+        logger.warning("No hay bind activo para cargar learning runtime config; se usan defaults.")
+        return None
+
+    if not inspect(bind).has_table(LearningRuntimeConfig.__tablename__):
+        logger.info(
+            "La tabla %s aun no existe; se mantiene runtime config por default.",
+            LearningRuntimeConfig.__tablename__,
+        )
+        return None
+
+    try:
+        record = (
+            db.query(LearningRuntimeConfig)
+            .order_by(LearningRuntimeConfig.created_at.desc())
+            .first()
+        )
+    except ProgrammingError as exc:
+        message = str(getattr(exc, "orig", exc)).lower()
+        if "learning_runtime_config" in message and any(
+            token in message for token in ("does not exist", "undefinedtable", "no such table")
+        ):
+            logger.warning(
+                "La tabla %s no esta disponible todavia; se continua con runtime config por default.",
+                LearningRuntimeConfig.__tablename__,
+            )
+            db.rollback()
+            return None
+        raise
+
     if not record:
         return None
     try:
