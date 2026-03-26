@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_optional_user
 from app.db.database import get_db
 from app.db.user_models import User
 from app.services import consulta_service
@@ -173,7 +173,7 @@ def legal_query(
     payload: LegalQueryRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ) -> LegalQueryResponse | JSONResponse:
     start_time = time.perf_counter()
     metadata = dict(payload.metadata or {})
@@ -473,31 +473,32 @@ def legal_query(
     db_persisted = False
     conversation_id = _extract_conversation_id(payload.metadata)
 
-    try:
-        consulta = consulta_service.save_consulta(
-            db=db,
-            user_id=current_user.id,
-            query=payload.query,
-            resultado=response_dict,
-            jurisdiction=effective_jurisdiction,
-            forum=effective_forum,
-            document_mode=effective_document_mode,
-            facts=payload.facts,
-            conversation_id=conversation_id,
-        )
-        saved_consulta_id = consulta.id
-        saved_at = consulta.created_at.isoformat() if consulta.created_at else None
-        db_persisted = True
-    except Exception:
-        _safe_rollback(db)
-        persistence_warning = _build_persistence_warning()
+    if current_user is not None:
+        try:
+            consulta = consulta_service.save_consulta(
+                db=db,
+                user_id=current_user.id,
+                query=payload.query,
+                resultado=response_dict,
+                jurisdiction=effective_jurisdiction,
+                forum=effective_forum,
+                document_mode=effective_document_mode,
+                facts=payload.facts,
+                conversation_id=conversation_id,
+            )
+            saved_consulta_id = consulta.id
+            saved_at = consulta.created_at.isoformat() if consulta.created_at else None
+            db_persisted = True
+        except Exception:
+            _safe_rollback(db)
+            persistence_warning = _build_persistence_warning()
 
     response_time_ms = int((time.perf_counter() - start_time) * 1000)
     session_id = _extract_session_id(payload.metadata)
     response_summary = _extract_response_summary(response_dict)
     learning_log_id: Optional[str] = None
 
-    if not excluded_from_learning:
+    if not excluded_from_learning and current_user is not None:
         try:
             learning_log = learning_log_service.save_learning_log(
                 db,
