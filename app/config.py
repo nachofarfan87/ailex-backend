@@ -55,7 +55,9 @@ def _normalize_database_url(raw_value: str | None) -> str:
     if not normalized:
         return ""
     if normalized.startswith("postgres://"):
-        return "postgresql://" + normalized[len("postgres://") :]
+        normalized = "postgresql://" + normalized[len("postgres://") :]
+    if normalized.startswith("postgresql://"):
+        return "postgresql+psycopg://" + normalized[len("postgresql://") :]
     return normalized
 
 
