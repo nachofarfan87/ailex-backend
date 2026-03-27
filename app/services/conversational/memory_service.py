@@ -208,7 +208,7 @@ def _collect_known_facts(payload: dict[str, Any], clarification_context: dict[st
 def _collect_inferred_facts(query_text: str, previous_memory: dict[str, Any]) -> dict[str, Any]:
     inferred = dict(previous_memory.get("inferred_facts") or {})
     normalized_query = _normalize_text(query_text)
-    if re.search(r"\bhij[ao]s?\b|\bmi hija\b|\bmi hijo\b", normalized_query):
+    if re.search(r"\bhij[ao]s?\b|\bmi hija\b|\bmi hijo\b|\bbebe\b|\bnena\b|\bnene\b|\bmenor(?:es)?\b|\bbeba\b", normalized_query):
         inferred["hay_hijos"] = "inferred"
     if re.search(r"\b\d{1,2}\s*(anos|años)\b", normalized_query):
         inferred["hay_hijos_edad"] = "inferred"
@@ -351,6 +351,12 @@ def _extract_answer_facts(*, slot: str | None, normalized_answer: str, raw_answe
         facts["convivencia"] = "conmigo" in normalized_answer
     if not facts and re.search(r"\bno se nada de el\b|\bno se nada de ella\b|\bdesaparecio\b", normalized_answer):
         facts["notificacion"] = False
+
+    # Universal: detect child mentions regardless of current slot.
+    # This ensures hay_hijos is set whenever the user mentions children,
+    # even if the active question is about something else entirely.
+    if re.search(r"\bhij[ao]s?\b|\bhija\b|\bhijo\b|\bbebe\b|\bnena\b|\bnene\b|\bbeba\b|\bmenor(?:es)?\b", normalized_answer):
+        facts.setdefault("hay_hijos", True)
 
     return facts
 

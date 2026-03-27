@@ -352,16 +352,90 @@ def infer_facts_from_query(query: str) -> dict[str, Any]:
 
 def build_dual_output(response: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(response or {})
-    conversational = _build_conversational(payload)
-    payload["conversational"] = conversational
+    # Run conversation-memory-aware path FIRST so its resolved_slots
+    # can override the generic question selector in _build_conversational.
     conversational_response = build_conversational_response(payload)
+    conversational = _build_conversational(payload)
     if conversational_response:
         payload["conversational_response"] = conversational_response
+        _sync_with_conversation_memory(conversational, conversational_response, payload)
+    payload["conversational"] = conversational
     payload["output_modes"] = {
         "user": _build_user_output(payload, conversational),
         "professional": _build_professional_output(payload),
     }
     return payload
+
+
+_ALIMENTOS_SLOT_QUESTION_PATTERNS: dict[str, tuple[str, ...]] = {
+    "aportes_actuales": ("aportando algo actualmente", "aporta", "cumple con la cuota", "paga alimentos"),
+    "convivencia": ("vive con vos", "convive", "hijos menores", "hay hijos", "capacidad restringida"),
+    "notificacion": ("ubicar al otro progenitor", "domicilio", "notificar", "dato util para"),
+    "ingresos": ("ingresos", "actividad laboral", "trabaja"),
+    "urgencia": ("necesidad urgente", "urgencia"),
+    "antecedentes": ("reclamo", "acuerdo", "intimacion"),
+}
+
+
+def _sync_with_conversation_memory(
+    conversational: dict[str, Any],
+    conversational_response: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    """Override Path A's question with the conversation-memory-aware selection from Path B.
+
+    Path B (build_conversational_response / question_selector) tracks resolved_slots
+    and knows which alimentos questions have already been answered.  Path A
+    (_build_conversational / _select_primary_question) does not.  This function
+    bridges the gap so the user never sees a repeated question.
+    """
+    conv_memory = _as_dict(conversational_response.get("conversation_memory"))
+    memory_question = conversational_response.get("primary_question")  # str | None
+    resolved_slots = set(_as_str_list(conv_memory.get("resolved_slots")))
+
+    # Merge conversation_memory known_facts into conversational for frontend progress.
+    memory_known_facts = _as_dict(conv_memory.get("known_facts"))
+    memory_inferred = _as_dict(conv_memory.get("inferred_facts"))
+    if memory_known_facts or memory_inferred:
+        existing_known = _as_dict(conversational.get("known_facts"))
+        # Inferred go first so explicit known_facts override them.
+        existing_known.update(memory_inferred)
+        existing_known.update(memory_known_facts)
+        conversational["known_facts"] = {
+            k: v for k, v in existing_known.items() if v not in (None, "", [], {})
+        }
+
+    if memory_question is not None:
+        # Memory-aware path selected a question — use it if different from Path A's.
+        current_q_norm = _normalize_text(conversational.get("question") or "")
+        memory_q_norm = _normalize_text(memory_question)
+        if current_q_norm != memory_q_norm:
+            conversational["question"] = memory_question
+            if conversational.get("should_ask_first") and memory_question:
+                guided = _build_guided_response(memory_question, payload)
+                if guided:
+                    # Preserve existing memory phrase (e.g. "actuas como demandado")
+                    memory_phrase = _build_memory_phrase(conversational.get("known_facts") or {})
+                    if memory_phrase:
+                        guided = f"{memory_phrase} {guided}".strip()
+                    conversational["guided_response"] = guided
+                    conversational["message"] = guided
+    elif resolved_slots:
+        # Memory-aware path has no more questions — clear stale Path A question.
+        current_q = _clean_text(conversational.get("question"))
+        if current_q and _question_targets_resolved_slot(current_q, resolved_slots):
+            conversational["question"] = None
+            if conversational.get("should_ask_first"):
+                conversational["should_ask_first"] = False
+
+
+def _question_targets_resolved_slot(question: str, resolved_slots: set[str]) -> bool:
+    """Return True if *question* is about a slot that was already resolved."""
+    normalized_q = _normalize_text(question)
+    for slot, patterns in _ALIMENTOS_SLOT_QUESTION_PATTERNS.items():
+        if slot in resolved_slots and any(p in normalized_q for p in patterns):
+            return True
+    return False
 
 
 def explain_confidence(response: dict[str, Any], mode: str) -> str:
@@ -1061,6 +1135,36 @@ def _item_is_resolved(
 
     if case_domain.casefold() == "divorcio" and "propuesta reguladora" in normalized and known_facts.get("hay_acuerdo") is True:
         return False
+
+    # --- Alimentos-specific resolution ---
+    if any(term in normalized for term in ("aporta", "paga", "cumple", "cuota")) and (
+        "aportes_actuales" in known_facts or "cumplimiento_alimentos" in known_facts
+    ):
+        return True
+
+    if any(term in normalized for term in ("convive", "vive con", "cuidado personal", "a cargo")) and (
+        "convivencia" in known_facts or "convivencia_hijo" in known_facts
+    ):
+        return True
+
+    if any(term in normalized for term in ("notificar", "ubicar", "domicilio", "localizar")) and (
+        "notificacion" in known_facts or "domicilio_otro_progenitor" in known_facts
+    ):
+        return True
+
+    if any(term in normalized for term in ("ingresos", "actividad laboral", "sueldo", "salario")) and (
+        "ingresos" in known_facts or "ingresos_otro_progenitor" in known_facts
+    ):
+        return True
+
+    if any(term in normalized for term in ("reclamo previo", "acuerdo previo", "mediacion", "intimacion")) and (
+        "antecedentes" in known_facts or "reclamo_previo" in known_facts
+    ):
+        return True
+
+    # Match "hijos menores" / "hay hijos" when hay_hijos is in known_facts (any domain)
+    if any(term in normalized for term in ("menor", "menores", "hija", "hijo", "bebe", "nena", "nene")) and "hay_hijos" in known_facts:
+        return True
 
     return False
 
