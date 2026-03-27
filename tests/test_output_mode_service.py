@@ -510,7 +510,8 @@ def test_scoring_prioriza_rol_procesal():
     question = result["conversational"]["question"]
 
     assert question is not None
-    assert "actor" in question.lower() or "demandado" in question.lower()
+    # Now uses human-friendly template instead of raw "actor/demandado"
+    assert "madre" in question.lower() or "profesional" in question.lower() or "actor" in question.lower()
 
 
 def test_scoring_question_engine_alta_beats_ordinary_missing():
@@ -996,7 +997,8 @@ def test_prioridad_alimentos_rol_gana_sobre_hijos():
     result = output_mode_service.build_dual_output(payload)
     question = (result["conversational"]["question"] or "").lower()
 
-    assert "actor" in question or "demandado" in question
+    # Now uses human-friendly template: "¿Consultas como madre, padre, o profesional...?"
+    assert "madre" in question or "profesional" in question or "actor" in question
 
 
 def test_prioridad_se_refleja_en_bonus_final_de_scoring():
@@ -1017,3 +1019,174 @@ def test_prioridad_fallback_si_no_hay_peso_definido_mantiene_comportamiento_actu
     result = output_mode_service.build_dual_output(payload)
 
     assert result["conversational"]["question"] is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UX fix tests: human questions, fact inference, progress, [object Object]
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_caso1_alimentos_hija_13_no_object_object():
+    """CASO 1: 'Quisiera saber si puedo pedir alimentos para mi hija de 13 años'
+    Expected: no [object Object], real short question, completion > 0, max 1 question.
+    """
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["case_domains"] = ["alimentos"]
+    payload["query"] = "Quisiera saber si puedo pedir alimentos para mi hija de 13 años"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si la persona actua como actor o demandado.",
+        "Verificar existencia de hijos menores a cargo.",
+    ]
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Precisar situacion economica de las partes.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    conv = result["conversational"]
+
+    # No [object Object] anywhere in serialized output
+    import json
+    serialized = json.dumps(result, default=str)
+    assert "[object Object]" not in serialized
+
+    # Question is a real question (short, ends with ?)
+    question = conv["question"]
+    assert question is not None
+    assert question.endswith("?")
+    assert len(question) < 100
+
+    # Completion > 0 because query mentions hija, alimentos, 13 años
+    known_facts = conv["known_facts"]
+    assert len(known_facts) > 0
+    completeness = conv["case_completeness"]
+    assert completeness.get("known_count", 0) > 0
+
+    # Only 1 question selected
+    assert isinstance(question, str)
+
+
+def test_caso2_divorcio_hija_casa_auto():
+    """CASO 2: 'Queremos divorciarnos con mi mujer, tengo una hija de 3 meses, una casa y un auto'
+    Expected: question compatible with divorcio + hija, completion > 0.
+    """
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["case_domains"] = ["divorcio"]
+    payload["query"] = "Queremos divorciarnos con mi mujer, tengo una hija de 3 meses, una casa y un auto"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral.",
+        "Confirmar si existen hijos menores en comun.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    conv = result["conversational"]
+
+    # Query-inferred facts should include hay_hijos, hay_bienes, tema_divorcio
+    known_facts = conv["known_facts"]
+    assert "hay_hijos" in known_facts or "tema_divorcio" in known_facts
+    assert "hay_bienes" in known_facts
+
+    completeness = conv["case_completeness"]
+    assert completeness.get("known_count", 0) > 0
+
+
+def test_fact_to_question_produces_human_questions():
+    """Missing fact descriptions should become short, human-friendly questions."""
+    from app.services.output_mode_service import _fact_to_question
+
+    q1 = _fact_to_question("Definir si el divorcio es conjunto o unilateral.")
+    assert q1.endswith("?")
+    assert len(q1) < 80
+
+    q2 = _fact_to_question("Verificar existencia de hijos menores a cargo.")
+    assert q2.endswith("?")
+    assert "hijos" in q2.lower()
+
+    q3 = _fact_to_question("Definir si la persona actua como actor o demandado.")
+    assert q3.endswith("?")
+    assert len(q3) < 100
+
+    q4 = _fact_to_question("Precisar situacion economica de las partes.")
+    assert q4.endswith("?")
+
+    # None of them should start with "Necesito saber"
+    for q in [q1, q2, q3, q4]:
+        assert not q.startswith("Necesito saber")
+
+
+def test_fact_to_question_preserves_existing_questions():
+    from app.services.output_mode_service import _fact_to_question
+
+    result = _fact_to_question("¿Ya hay una causa judicial iniciada?")
+    assert result == "¿Ya hay una causa judicial iniciada?"
+
+
+def test_infer_facts_from_query_alimentos_hija():
+    from app.services.output_mode_service import infer_facts_from_query
+
+    facts = infer_facts_from_query("Quisiera saber si puedo pedir alimentos para mi hija de 13 años")
+    assert "hay_hijos" in facts
+    assert "hay_hijos_edad" in facts
+    assert "tema_alimentos" in facts
+
+
+def test_infer_facts_from_query_divorcio_bienes():
+    from app.services.output_mode_service import infer_facts_from_query
+
+    facts = infer_facts_from_query("Queremos divorciarnos, tengo una casa y un auto")
+    assert "tema_divorcio" in facts
+    assert "hay_bienes" in facts
+
+
+def test_infer_facts_from_query_empty():
+    from app.services.output_mode_service import infer_facts_from_query
+
+    facts = infer_facts_from_query("")
+    assert facts == {}
+
+
+def test_completeness_known_count_reflects_inferred_facts():
+    """When query mentions children + alimentos, known_count > 0."""
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["query"] = "Necesito pedir alimentos para mi hijo"
+
+    result = output_mode_service.build_dual_output(payload)
+    completeness = result["conversational"]["case_completeness"]
+
+    assert completeness.get("known_count", 0) >= 2
+
+
+def test_next_step_never_object_in_conversational():
+    """next_step must always be a string or None, never a dict."""
+    payload = _refined_response()
+    result = output_mode_service.build_dual_output(payload)
+
+    next_step = result["conversational"]["next_step"]
+    assert next_step is None or isinstance(next_step, str)
+
+
+def test_caso5_multiple_missing_single_question():
+    """CASO 5: Several critical missing data → only 1 primary question."""
+    payload = _refined_response()
+    payload["case_domain"] = "alimentos"
+    payload["query"] = "Tengo un reclamo"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si la persona actua como actor o demandado.",
+        "Verificar existencia de hijos menores a cargo.",
+        "Precisar situacion economica.",
+        "Determinar urgencia del reclamo.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    conv = result["conversational"]
+
+    # Only 1 question (string), not multiple
+    question = conv["question"]
+    assert question is not None
+    assert isinstance(question, str)
+    assert question.endswith("?")
+
+    # missing_facts is a compact list, max 3
+    assert len(conv["missing_facts"]) <= 3

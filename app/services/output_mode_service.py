@@ -251,6 +251,102 @@ _FIELD_PRIORITY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 _FIELD_PRIORITY_WEIGHT_FACTOR = 4.0
 
+# ---------------------------------------------------------------------------
+# Human-friendly question templates per field
+# ---------------------------------------------------------------------------
+# Used by _fact_to_question when converting a missing-fact slug into a
+# real, short, user-facing question.  One question per field — the system
+# picks the highest-priority missing field and emits only this one.
+
+_FIELD_TO_HUMAN_QUESTION: dict[str, str] = {
+    "divorcio_modalidad": "¿El divorcio seria de comun acuerdo o unilateral?",
+    "hay_hijos": "¿Hay hijos menores o con capacidad restringida?",
+    "hay_acuerdo": "¿Hay acuerdo entre las partes?",
+    "rol_procesal": "¿Consultas como madre, padre, o profesional de una de las partes?",
+    "urgencia": "¿Necesitas resolver esto con urgencia?",
+    "situacion_economica": "¿Cual es la situacion economica actual de cada parte?",
+    "hay_ingresos": "¿El otro progenitor tiene ingresos identificables?",
+    "cese_convivencia": "¿Ya dejaron de convivir?",
+    "hay_bienes": "¿Hay bienes relevantes (inmuebles, vehiculos, ahorros)?",
+    "vivienda_familiar": "¿Hay una vivienda familiar en juego?",
+}
+
+# Keyword → field mapping used to convert free-text missing facts into a
+# known field, so we can use the human question template above.
+_MISSING_TEXT_TO_FIELD: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("divorcio_modalidad", ("unilateral", "conjunto", "mutuo acuerdo", "comun acuerdo", "variante procesal", "presentacion conjunta", "tipo de divorcio")),
+    ("hay_hijos", ("hijos", "menores", "responsabilidad parental", "cuidado personal", "regimen de comunicacion")),
+    ("hay_acuerdo", ("hay acuerdo", "acuerdo entre",)),
+    ("rol_procesal", ("actor", "demandado", "rol procesal", "quien inicia", "quien promueve", "quien demanda")),
+    ("urgencia", ("urgencia", "cautelar", "peligro en la demora", "tutela anticipada", "proteccion urgente")),
+    ("situacion_economica", ("situacion economica", "capacidad economica",)),
+    ("hay_ingresos", ("ingresos", "recursos economicos", "salario",)),
+    ("cese_convivencia", ("cese de convivencia", "convivencia", "separados",)),
+    ("hay_bienes", ("bienes", "patrimonio", "compensacion economica", "vivienda familiar", "inmueble",)),
+    ("vivienda_familiar", ("vivienda", "hogar conyugal", "casa",)),
+)
+
+# ---------------------------------------------------------------------------
+# Query-based fact inference patterns
+# ---------------------------------------------------------------------------
+# Detects facts already present in the raw query text so that progress %
+# reflects information the user already supplied even before clarification
+# flow kicks in.
+
+_QUERY_FACT_PATTERNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # (field_name, value_if_matched, (patterns...))
+    ("hay_hijos", "inferred", (
+        r"\bhij[oa]s?\b", r"\bmenor(es)?\b", r"\bnene\b", r"\bnena\b",
+        r"\bnino\b", r"\bnina\b", r"\bniño\b", r"\bniña\b",
+        r"\bchic[oa]s?\b",
+    )),
+    ("hay_hijos_edad", "inferred", (
+        r"\b\d{1,2}\s*(años|meses|dias)\b",
+    )),
+    ("tema_alimentos", "inferred", (
+        r"\balimento", r"\bcuota alimentaria\b", r"\bmanutencion\b",
+        r"\bpension alimentaria\b",
+    )),
+    ("tema_divorcio", "inferred", (
+        r"\bdivorcio\b", r"\bdivorci",
+    )),
+    ("tema_cuidado", "inferred", (
+        r"\bcuidado personal\b", r"\btenencia\b", r"\bguarda\b",
+        r"\bregimen de (comunicacion|visitas)\b",
+    )),
+    ("vinculo_parental", "inferred", (
+        r"\bpadre\b", r"\bmadre\b", r"\bprogenitor", r"\bpapa\b", r"\bmama\b",
+        r"\babuel[oa]\b",
+    )),
+    ("urgencia", "inferred", (
+        r"\burgente\b", r"\burgencia\b", r"\bcautelar\b",
+        r"\bproteccion\s+urgente\b",
+    )),
+    ("hay_bienes", "inferred", (
+        r"\bcasa\b", r"\bdepartamento\b", r"\bauto\b", r"\bvehiculo\b",
+        r"\binmueble\b", r"\bbienes\b",
+    )),
+)
+
+
+def infer_facts_from_query(query: str) -> dict[str, Any]:
+    """Extract implicit facts from the raw user query text.
+
+    Returns a dict of field→value for every pattern that matches.
+    These are *inferred* facts — not confirmed — but useful to bump
+    the progress bar above 0 % when the user already mentioned data.
+    """
+    normalized = _normalize_text(query)
+    if not normalized:
+        return {}
+    facts: dict[str, Any] = {}
+    for field, value, patterns in _QUERY_FACT_PATTERNS:
+        for pattern in patterns:
+            if re.search(pattern, normalized):
+                facts[field] = value
+                break
+    return facts
+
 
 def build_dual_output(response: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(response or {})
@@ -453,7 +549,17 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         recommended[0] if recommended else "",
         _as_str_list(procedural_strategy.get("next_steps"))[0] if _as_str_list(procedural_strategy.get("next_steps")) else "",
     )
-    next_step = _to_user_text(next_step_source) if next_step_source else None
+    # Defensive: ensure next_step is always a plain string, never an object.
+    raw_next_step = _to_user_text(next_step_source) if next_step_source else None
+    if isinstance(raw_next_step, dict):
+        next_step = _clean_text(
+            raw_next_step.get("description")
+            or raw_next_step.get("action")
+            or raw_next_step.get("title")
+            or raw_next_step.get("text")
+        )
+    else:
+        next_step = _clean_text(raw_next_step) if raw_next_step else None
 
     return {
         "message": guided_response or message,
@@ -809,14 +915,19 @@ def evaluate_case_completeness(facts: dict[str, Any] | None, domain: str | None)
         for key, value in _as_dict(facts).items()
         if value not in (None, "", [], {})
     }
+
+    # Count how many *useful* pieces of information we already have,
+    # including inferred meta-fields like tema_alimentos, hay_hijos_edad, etc.
+    useful_fact_count = len(known_facts)
+
     if not rules:
-        fact_count = len(known_facts)
-        confidence_level = "high" if fact_count >= 3 else "medium" if fact_count >= 2 else "low"
+        confidence_level = "high" if useful_fact_count >= 3 else "medium" if useful_fact_count >= 2 else "low"
         return {
-            "is_complete": fact_count >= 2,
+            "is_complete": useful_fact_count >= 2,
             "missing_critical": [],
             "missing_optional": [],
             "confidence_level": confidence_level,
+            "known_count": useful_fact_count,
         }
 
     missing_critical: list[str] = []
@@ -847,6 +958,7 @@ def evaluate_case_completeness(facts: dict[str, Any] | None, domain: str | None)
         "missing_critical": missing_critical,
         "missing_optional": missing_optional,
         "confidence_level": confidence_level,
+        "known_count": useful_fact_count,
     }
 
 
@@ -861,9 +973,21 @@ def get_field_priority(domain: str | None, field: str | None) -> float:
 def _collect_known_facts(response: dict[str, Any]) -> dict[str, Any]:
     metadata = _as_dict(response.get("metadata"))
     clarification_context = _as_dict(metadata.get("clarification_context"))
+    # Start with facts inferred from the raw query text so that the
+    # progress bar is never 0 % when the user already mentioned data.
+    query_text = _clean_text(
+        response.get("query")
+        or clarification_context.get("base_query")
+        or ""
+    )
+    inferred = infer_facts_from_query(query_text)
+    # Explicit facts always override inferred ones.
     known_facts = _merge_dicts(
-        _as_dict(clarification_context.get("known_facts")),
-        _as_dict(response.get("facts")),
+        inferred,
+        _merge_dicts(
+            _as_dict(clarification_context.get("known_facts")),
+            _as_dict(response.get("facts")),
+        ),
     )
     return {key: value for key, value in known_facts.items() if value not in (None, "", [], {})}
 
@@ -943,6 +1067,16 @@ def _build_guided_response(question: str | None, response: dict[str, Any]) -> st
     question_candidates = _extract_question_candidates(response)
     selected_candidate = question_candidates[0] if question_candidates else {}
     purpose = _clean_text(selected_candidate.get("purpose"))
+
+    # If the question is already a proper "¿...?" question, use it directly
+    clean_q = _clean_text(question)
+    if clean_q.startswith("¿") or clean_q.endswith("?"):
+        reason = _purpose_to_reason(purpose, response)
+        if reason:
+            return f"Para orientarte bien, necesito un dato clave: {clean_q} Esto es importante porque {reason}."
+        return f"Para orientarte bien, necesito un dato clave: {clean_q}"
+
+    # Legacy path: strip and wrap
     question_body = _strip_question_marks(question)
     question_body = re.sub(r"^necesito saber\s+", "", question_body, flags=re.IGNORECASE).strip()
     reason = _purpose_to_reason(purpose, response)
@@ -971,16 +1105,42 @@ def _purpose_to_reason(purpose: str, response: dict[str, Any]) -> str:
 
 
 def _fact_to_question(fact: str) -> str:
+    """Convert a missing-fact description into a short, human-friendly question.
+
+    Strategy:
+      1. If the text already ends with '?', return it as-is.
+      2. Try to match the text to a known field and use the pre-written
+         human question from _FIELD_TO_HUMAN_QUESTION.
+      3. Fall back to a concise "¿…?" wrap.
+    """
     text = _to_user_text(fact)
     if not text:
         return ""
     if text.rstrip().endswith("?"):
         return text
+
+    # Try to map the free-text fact to a known field
+    normalized = _normalize_text(text)
+    for field, patterns in _MISSING_TEXT_TO_FIELD:
+        for pattern in patterns:
+            if pattern in normalized:
+                human_q = _FIELD_TO_HUMAN_QUESTION.get(field)
+                if human_q:
+                    return human_q
+                break
+
+    # Fallback: strip verbs and wrap as question
     lowered = text.lower().rstrip(".")
-    lowered = re.sub(r"^(definir|precisar|completar|verificar|confirmar|determinar|especificar)\s+", "", lowered)
-    if lowered.startswith("si "):
-        return f"Necesito saber {lowered}."
-    return f"Necesito saber {lowered}."
+    lowered = re.sub(
+        r"^(definir|precisar|completar|verificar|confirmar|determinar|especificar)\s+",
+        "",
+        lowered,
+    )
+    lowered = re.sub(r"^si\s+", "", lowered)
+    lowered = re.sub(r"^(la|el|los|las)\s+", "", lowered)
+    if not lowered:
+        return ""
+    return f"¿{lowered[0].upper()}{lowered[1:]}?"
 
 
 def _clean_question(question: str | None) -> str | None:
