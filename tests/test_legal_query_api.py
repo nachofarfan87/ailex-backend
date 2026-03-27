@@ -59,6 +59,15 @@ def _build_result(*, blocking_factor: str = "none", fallback_used: bool = False)
         "case_profile": {"case_domain": "alimentos"},
         "case_strategy": {"strategy_mode": "conservadora"},
         "legal_strategy": {},
+        "conversational_response": {
+            "mode": "guided_answer",
+            "domain": "alimentos",
+            "messages": [
+                {"type": "info", "text": "Sí, podés iniciar un reclamo de alimentos."},
+                {"type": "question", "text": "¿El otro progenitor está aportando algo actualmente?"},
+            ],
+            "primary_question": "¿El otro progenitor está aportando algo actualmente?",
+        },
         "retrieved_items": [],
         "context": {},
         "generated_document": None,
@@ -183,6 +192,7 @@ async def test_endpoint_delegates_to_single_orchestrator_and_serializes_response
     assert payload["source_mode"] == "normative_only"
     assert payload["documents_considered"] == 2
     assert payload["response_text"] == "Respuesta final prudente."
+    assert payload["conversational_response"]["domain"] == "alimentos"
 
 
 @pytest.mark.asyncio

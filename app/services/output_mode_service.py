@@ -4,6 +4,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from app.services.conversational import build_conversational_response
+
 
 _USER_TERM_RULES = (
     {
@@ -352,6 +354,9 @@ def build_dual_output(response: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(response or {})
     conversational = _build_conversational(payload)
     payload["conversational"] = conversational
+    conversational_response = build_conversational_response(payload)
+    if conversational_response:
+        payload["conversational_response"] = conversational_response
     payload["output_modes"] = {
         "user": _build_user_output(payload, conversational),
         "professional": _build_professional_output(payload),

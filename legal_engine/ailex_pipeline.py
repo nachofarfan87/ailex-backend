@@ -92,6 +92,7 @@ class PipelineResult:
     legal_strategy: Dict[str, Any] = field(default_factory=dict)
     output_modes: Dict[str, Any] = field(default_factory=dict)
     conversational: Dict[str, Any] = field(default_factory=dict)
+    conversational_response: Dict[str, Any] = field(default_factory=dict)
     generated_document: Optional[str] = None
     quick_start: Optional[str] = None
 
@@ -725,6 +726,7 @@ class AilexPipeline:
             legal_strategy=self._normalize_obj(response_payload.get("legal_strategy")),
             output_modes=self._normalize_obj(response_payload.get("output_modes")),
             conversational=self._normalize_obj(response_payload.get("conversational")),
+            conversational_response=self._normalize_obj(response_payload.get("conversational_response")),
             generated_document=response_payload.get("generated_document"),
             quick_start=response_payload.get("quick_start"),
             warnings=list(response_payload.get("warnings") or []),
