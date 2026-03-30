@@ -181,7 +181,11 @@ def test_copy_is_professional_in_messages_and_question():
     assert "podés" in all_text
     assert "defensoría" in all_text
     assert "está" in all_text
-    assert "algún" in conversational_response["primary_question"] or "está" in conversational_response["primary_question"] or "sabés" in conversational_response["primary_question"]
+    # Fase 5.5: primary_question is now simplified — check it reads naturally
+    pq = conversational_response["primary_question"]
+    assert "¿" in pq and pq.endswith("?")
+    # At least one natural-language marker present (vos-form or plain Spanish)
+    assert any(w in pq.lower() for w in ("algún", "está", "sabés", "plata", "vive con vos", "ubicar", "trabaja"))
 
 
 def test_question_selection_metadata_is_serialized_without_breaking_contract():
@@ -191,7 +195,11 @@ def test_question_selection_metadata_is_serialized_without_breaking_contract():
 
     conversational_response = result["conversational_response"]
     assert conversational_response["primary_question"]
-    assert conversational_response["question_selection"]["selected"]["text"] == conversational_response["primary_question"]
+    # Fase 5.5: primary_question is simplified; selected.text preserves the original formal version.
+    # Both must be non-empty and the simplified version should be a proper question.
+    assert conversational_response["primary_question"]
+    assert conversational_response["question_selection"]["selected"]["text"]
+    assert conversational_response["primary_question"].startswith("¿")
     assert conversational_response["question_selection"]["selected"]["score"] > 0
     assert conversational_response["question_selection"]["selected"]["score_breakdown"]["total"] == conversational_response["question_selection"]["selected"]["score"]
     assert isinstance(conversational_response["question_selection"]["adaptive_context"], dict)

@@ -5,6 +5,11 @@ from copy import deepcopy
 from typing import Any
 
 from app.services.conversational import build_conversational_response
+from app.services.conversational.conversational_quality import (
+    apply_conversational_style,
+    build_contextual_opening,
+    simplify_question_text,
+)
 
 
 _USER_TERM_RULES = (
@@ -405,6 +410,11 @@ def _sync_with_conversation_memory(
             k: v for k, v in existing_known.items() if v not in (None, "", [], {})
         }
 
+    # Extract slot key and memory for the conversational quality layer.
+    question_selection = _as_dict(conversational_response.get("question_selection"))
+    selected_info = _as_dict(question_selection.get("selected"))
+    slot_key = str(selected_info.get("key") or "")
+
     if memory_question is not None:
         # Memory-aware path selected a question — use it if different from Path A's.
         current_q_norm = _normalize_text(conversational.get("question") or "")
@@ -412,7 +422,12 @@ def _sync_with_conversation_memory(
         if current_q_norm != memory_q_norm:
             conversational["question"] = memory_question
             if conversational.get("should_ask_first") and memory_question:
-                guided = _build_guided_response(memory_question, payload)
+                guided = _build_guided_response(
+                    memory_question,
+                    payload,
+                    slot_key=slot_key,
+                    conversation_memory=conv_memory,
+                )
                 if guided:
                     # Preserve existing memory phrase (e.g. "actuas como demandado")
                     memory_phrase = _build_memory_phrase(conversational.get("known_facts") or {})
@@ -1169,7 +1184,13 @@ def _item_is_resolved(
     return False
 
 
-def _build_guided_response(question: str | None, response: dict[str, Any]) -> str | None:
+def _build_guided_response(
+    question: str | None,
+    response: dict[str, Any],
+    *,
+    slot_key: str = "",
+    conversation_memory: dict[str, Any] | None = None,
+) -> str | None:
     if not question:
         return None
 
@@ -1177,7 +1198,22 @@ def _build_guided_response(question: str | None, response: dict[str, Any]) -> st
     selected_candidate = question_candidates[0] if question_candidates else {}
     purpose = _clean_text(selected_candidate.get("purpose"))
 
-    # If the question is already a proper "¿...?" question, use it directly
+    # --- Conversational Quality Layer (Fase 5.5) ---
+    # When we have slot_key / conversation_memory, use the new quality layer
+    # for varied openings and simplified questions.
+    if slot_key or conversation_memory:
+        styled = apply_conversational_style(
+            question,
+            conversation_memory,
+            slot_key=slot_key,
+            include_opening=True,
+        )
+        reason = _purpose_to_reason(purpose, response)
+        if reason:
+            return f"{styled} Esto es importante porque {reason}."
+        return styled
+
+    # --- Legacy path (non-alimentos domains without memory context) ---
     clean_q = _clean_text(question)
     if clean_q.startswith("¿") or clean_q.endswith("?"):
         reason = _purpose_to_reason(purpose, response)

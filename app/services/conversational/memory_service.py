@@ -101,6 +101,12 @@ def merge_conversation_memory(previous_memory: dict[str, Any] | None, updates: d
         incoming.get("canonical_signals"),
     )
 
+    # Preserve _last_opening_idx from Fase 5.5 conversational quality layer.
+    # incoming wins if present; otherwise keep previous value.
+    last_opening_idx = incoming.get("_last_opening_idx")
+    if last_opening_idx is None:
+        last_opening_idx = previous.get("_last_opening_idx")
+
     return {
         "known_facts": merged_known,
         "inferred_facts": merged_inferred,
@@ -125,6 +131,7 @@ def merge_conversation_memory(previous_memory: dict[str, Any] | None, updates: d
         "last_user_message": _clean_text(incoming.get("last_user_message") or previous.get("last_user_message")),
         "session_id": _clean_text(incoming.get("session_id") or previous.get("session_id")),
         "adaptive_context": _as_dict(incoming.get("adaptive_context") or previous.get("adaptive_context")),
+        "_last_opening_idx": last_opening_idx,
     }
 
 

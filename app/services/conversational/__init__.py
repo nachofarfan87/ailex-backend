@@ -13,9 +13,16 @@ from app.services.conversational.question_selector import (
     build_primary_question_for_alimentos,
     select_primary_question_for_alimentos,
 )
+from app.services.conversational.conversational_quality import (
+    apply_conversational_style,
+    build_contextual_opening,
+    simplify_question_text,
+)
 from app.services.conversational.response_builder import build_conversational_response
 
 __all__ = [
+    "apply_conversational_style",
+    "build_contextual_opening",
     "build_conversational_response",
     "build_conversation_memory",
     "build_adaptive_context",
@@ -25,5 +32,6 @@ __all__ = [
     "evaluate_conversation_progress",
     "merge_conversation_memory",
     "select_primary_question_for_alimentos",
+    "simplify_question_text",
     "update_memory_with_user_answer",
 ]

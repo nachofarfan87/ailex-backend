@@ -4,6 +4,7 @@ import re
 import unicodedata
 from typing import Any
 
+from app.services.conversational.conversational_quality import simplify_question_text
 from app.services.conversational.question_selector import (
     build_primary_question_for_alimentos,
     select_primary_question_for_alimentos,
@@ -33,6 +34,13 @@ def build_alimentos_playbook(context: dict[str, Any]) -> dict[str, Any]:
             "conversation_memory": conversation_memory,
         }
     )
+
+    # Fase 5.5: simplify the question shown to the user.
+    slot_key = ""
+    if question_selection:
+        slot_key = str((question_selection.get("selected") or {}).get("key") or "")
+    if primary_question and slot_key:
+        primary_question = simplify_question_text(primary_question, slot_key)
 
     messages = [
         {
