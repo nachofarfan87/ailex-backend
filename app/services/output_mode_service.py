@@ -1216,7 +1216,23 @@ def _collect_known_facts(response: dict[str, Any]) -> dict[str, Any]:
             _as_dict(response.get("facts")),
         ),
     )
+    known_facts = _filter_domain_contaminated_meta_facts(
+        known_facts,
+        case_domain=_clean_text(response.get("case_domain")),
+    )
     return {key: value for key, value in known_facts.items() if value not in (None, "", [], {})}
+
+
+def _filter_domain_contaminated_meta_facts(
+    facts: dict[str, Any],
+    *,
+    case_domain: str,
+) -> dict[str, Any]:
+    filtered = dict(facts or {})
+    normalized_domain = _clean_text(case_domain).casefold()
+    if normalized_domain == "divorcio":
+        filtered.pop("tema_alimentos", None)
+    return filtered
 
 
 def _filter_question_candidates(

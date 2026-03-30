@@ -379,12 +379,15 @@ def test_divorcio_multiturn_flow_evolves_when_convenio_terms_are_added():
     assert "hijos" not in final_question
     assert "unilateral" not in final_question
 
-    assert conversational_known_facts["tema_alimentos"] == "inferred"
     assert conversational_known_facts["tema_cuidado"] == "inferred"
     assert conversational_known_facts["convenio_regulador"] is True
+    assert "tema_alimentos" not in conversational_known_facts
 
     assert "homologacion" in user_summary
     assert "porcentaje" in user_summary or "base de calculo" in user_summary
+    assert user_output["quick_start"]
+    assert "homologacion" in user_output["quick_start"].lower() or "propuesta reguladora propia" in user_output["quick_start"].lower()
+    assert "preparar presentacion inicial de divorcio con encuadre y competencia correctos" not in user_output["quick_start"].lower()
     assert any("homologacion" in step.lower() for step in user_output["next_steps"])
     assert any("base de calculo" in step.lower() for step in user_output["next_steps"])
     assert any("comunicacional" in step.lower() or "comunicacion" in step.lower() for step in user_output["next_steps"])

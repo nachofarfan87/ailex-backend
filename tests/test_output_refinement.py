@@ -83,6 +83,24 @@ def test_genera_quick_start():
     assert "Definir la via procesal" in response["quick_start"]
 
 
+def test_reactive_divorce_quick_start_mutates_from_generic_start():
+    payload = _base_response()
+    payload["case_strategy"]["strategy_reactivity"] = {
+        "stale": True,
+        "changed_fields": ["divorcio_modalidad", "hay_acuerdo", "convenio_regulador"],
+    }
+    payload["case_strategy"]["recommended_actions"] = [
+        "Preparar presentacion inicial de divorcio con encuadre y competencia correctos.",
+        "Ajustar convenio para homologacion con redaccion precisa de alimentos y comunicacion.",
+        "Preparar presentacion unilateral con propuesta reguladora propia y hechos suficientes para sostenerla.",
+    ]
+
+    response = output_refinement_service.refine(payload)
+
+    assert "homologacion" in response["quick_start"].lower() or "propuesta reguladora propia" in response["quick_start"].lower()
+    assert "preparar presentacion inicial de divorcio con encuadre y competencia correctos" not in response["quick_start"].lower()
+
+
 def test_divorcio_simple_moderates_warnings_and_groups_missing_information():
     response = output_refinement_service.refine(_base_response())
 
@@ -227,6 +245,37 @@ def test_divorce_agreement_enrichment_is_noop_without_relevant_facts():
     assert response["reasoning"]["short_answer"] == original_reasoning
     assert not any("homologacion" in item for item in actions)
     assert not any("base de calculo" in item for item in actions)
+
+
+def test_refinement_removes_variant_missing_when_modalidad_is_already_defined():
+    payload = _base_response()
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+    }
+    payload["metadata"] = {
+        "clarification_context": {
+            "known_facts": {
+                "divorcio_modalidad": "unilateral",
+                "hay_acuerdo": False,
+            }
+        }
+    }
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Definir la variante procesal del divorcio y evitar un encuadre incompleto.",
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+    ]
+    payload["normative_reasoning"]["unresolved_issues"] = [
+        "Todavia no esta determinada con precision la variante procesal del divorcio.",
+        "No se informa sobre bienes gananciales o situacion patrimonial.",
+    ]
+
+    response = output_refinement_service.refine(payload)
+    ordinary_missing = " ".join(response["case_strategy"]["ordinary_missing_information"]).lower()
+    unresolved = " ".join(response["normative_reasoning"]["unresolved_issues"]).lower()
+
+    assert "variante procesal" not in ordinary_missing
+    assert "variante procesal" not in unresolved
 
 
 def test_strategy_reactivity_makes_state_change_visible_for_hijos_and_unilateral():

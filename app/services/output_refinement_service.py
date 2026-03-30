@@ -105,6 +105,7 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
     refined = deepcopy(response or {})
     refined = _apply_strategy_reactivity_summary(refined)
     refined = _apply_divorce_agreement_enrichment(refined)
+    refined = _remove_resolved_missing_information(refined)
     refined = dedupe_output_blocks(refined)
 
     case_domains = dedupe_domains(_as_str_list(refined.get("case_domains")))
@@ -118,7 +119,11 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
 
     case_strategy = _as_dict(refined.get("case_strategy"))
     if case_strategy:
-        actions = prioritize_actions(_as_str_list(case_strategy.get("recommended_actions")))
+        actions = prioritize_actions(
+            _as_str_list(case_strategy.get("recommended_actions")),
+            strategy_reactivity=_as_dict(case_strategy.get("strategy_reactivity")),
+            case_domain=str(refined.get("case_domain") or ""),
+        )
         case_strategy["recommended_actions"] = actions
         case_strategy["risk_analysis"] = _dedupe_texts(_as_str_list(case_strategy.get("risk_analysis")))
         case_strategy["conflict_summary"] = _dedupe_texts(_as_str_list(case_strategy.get("conflict_summary")))
@@ -126,7 +131,11 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
         case_strategy["secondary_domain_notes"] = _dedupe_texts(_as_str_list(case_strategy.get("secondary_domain_notes")))
         case_strategy["strategic_narrative"] = simplify_strategy_text(str(case_strategy.get("strategic_narrative") or ""))
         refined["case_strategy"] = case_strategy
-        quick_start = extract_quick_start(actions)
+        quick_start = extract_quick_start(
+            actions,
+            strategy_reactivity=_as_dict(case_strategy.get("strategy_reactivity")),
+            case_domain=str(refined.get("case_domain") or ""),
+        )
         if quick_start:
             refined["quick_start"] = quick_start
 
@@ -282,19 +291,31 @@ def dedupe_domains(domains: list[str]) -> list[str]:
     return result
 
 
-def prioritize_actions(actions: list[str]) -> list[str]:
+def prioritize_actions(
+    actions: list[str],
+    *,
+    strategy_reactivity: dict[str, Any] | None = None,
+    case_domain: str = "",
+) -> list[str]:
     ranked = []
-    for index, action in enumerate(_dedupe_texts(actions)):
+    changed_fields = {
+        str(item).strip()
+        for item in (_as_dict(strategy_reactivity).get("changed_fields") or [])
+        if str(item).strip()
+    }
+    for index, action in enumerate(_dedupe_texts(_compress_redundant_actions(actions, case_domain=case_domain))):
         normalized = _normalize_text(action)
-        priority = 3
+        priority = 0
         if any(token in normalized for token in _CRITICAL_ACTION_PATTERNS):
-            priority = 0
+            priority = 30
         elif any(token in normalized for token in _EVIDENCE_ACTION_PATTERNS):
-            priority = 1
+            priority = 20
         elif any(token in normalized for token in _DRAFTING_ACTION_PATTERNS):
-            priority = 2
+            priority = 10
+        if changed_fields:
+            priority += _reactivity_action_bonus(normalized, changed_fields)
         ranked.append((priority, index, action))
-    ranked.sort(key=lambda item: (item[0], item[1]))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
     return [item[2] for item in ranked[:_MAX_ACTIONS]]
 
 
@@ -320,8 +341,24 @@ def simplify_strategy_text(text: str) -> str:
     return concise[:700].strip()
 
 
-def extract_quick_start(actions: list[str]) -> str:
-    prioritized = prioritize_actions(actions)
+def extract_quick_start(
+    actions: list[str],
+    *,
+    strategy_reactivity: dict[str, Any] | None = None,
+    case_domain: str = "",
+) -> str:
+    reactive_pick = _pick_reactive_quick_start_action(
+        actions,
+        strategy_reactivity=_as_dict(strategy_reactivity),
+        case_domain=case_domain,
+    )
+    if reactive_pick:
+        return f"Primer paso recomendado: {reactive_pick}"
+    prioritized = prioritize_actions(
+        actions,
+        strategy_reactivity=strategy_reactivity,
+        case_domain=case_domain,
+    )
     if not prioritized:
         return ""
     return f"Primer paso recomendado: {prioritized[0]}"
@@ -383,6 +420,42 @@ def _collect_missing_information(response: dict[str, Any]) -> list[str]:
     case_strategy = _as_dict(response.get("case_strategy"))
     values.extend(_as_str_list(case_strategy.get("missing_information")))
     return _dedupe_texts(values)
+
+
+def _remove_resolved_missing_information(response: dict[str, Any]) -> dict[str, Any]:
+    refined = deepcopy(response or {})
+    case_strategy = _as_dict(refined.get("case_strategy"))
+    if not case_strategy:
+        return refined
+
+    facts = _collect_resolution_facts(refined)
+    filtered_critical = _filter_resolved_missing_list(_as_str_list(case_strategy.get("critical_missing_information")), facts)
+    filtered_ordinary = _filter_resolved_missing_list(_as_str_list(case_strategy.get("ordinary_missing_information")), facts)
+    filtered_missing = _filter_resolved_missing_list(_as_str_list(case_strategy.get("missing_information")), facts)
+
+    case_strategy["critical_missing_information"] = filtered_critical
+    case_strategy["ordinary_missing_information"] = filtered_ordinary
+    case_strategy["missing_information"] = _dedupe_texts([*filtered_critical, *filtered_ordinary, *filtered_missing])
+    refined["case_strategy"] = case_strategy
+
+    normative_reasoning = _as_dict(refined.get("normative_reasoning"))
+    if normative_reasoning:
+        normative_reasoning["unresolved_issues"] = _filter_resolved_missing_list(
+            _as_str_list(normative_reasoning.get("unresolved_issues")),
+            facts,
+        )
+        refined["normative_reasoning"] = normative_reasoning
+
+    procedural_strategy = _as_dict(refined.get("procedural_strategy"))
+    if procedural_strategy:
+        filtered_procedural = _filter_resolved_missing_list(
+            _as_str_list(procedural_strategy.get("missing_information") or procedural_strategy.get("missing_info")),
+            facts,
+        )
+        procedural_strategy["missing_information"] = filtered_procedural
+        procedural_strategy["missing_info"] = filtered_procedural
+        refined["procedural_strategy"] = procedural_strategy
+    return refined
 
 
 def _rebalance_warnings(
@@ -541,6 +614,116 @@ def _drop_generic_divorce_agreement_missing_items(items: list[str]) -> list[str]
             continue
         filtered.append(item)
     return filtered
+
+
+def _filter_resolved_missing_list(items: list[str], facts: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    for item in items:
+        normalized = _normalize_text(item)
+        if not normalized:
+            continue
+        if _missing_item_is_resolved(normalized, facts):
+            continue
+        result.append(item)
+    return result
+
+
+def _missing_item_is_resolved(normalized_item: str, facts: dict[str, Any]) -> bool:
+    modalidad = _normalize_text(facts.get("divorcio_modalidad"))
+    if any(term in normalized_item for term in ("variante procesal", "conjunto", "unilateral", "hay acuerdo", "acuerdo")):
+        if modalidad in {"unilateral", "conjunto"}:
+            return True
+        if "hay_acuerdo" in facts and "unilateral" not in normalized_item and "conjunto" not in normalized_item:
+            return True
+
+    if "hijos" in normalized_item and facts.get("hay_hijos") is True:
+        return True
+
+    if any(term in normalized_item for term in ("convenio regulador", "propuesta reguladora", "convenio")) and facts.get("convenio_regulador") is True:
+        return True
+
+    if "alimentos" in normalized_item and (
+        facts.get("alimentos_definidos") is True or _normalize_text(facts.get("cuota_alimentaria_porcentaje"))
+    ):
+        return True
+
+    if any(term in normalized_item for term in ("regimen de comunicacion", "regimen comunicacional", "comunicacion")) and (
+        facts.get("regimen_comunicacional") is True or _normalize_text(facts.get("regimen_comunicacional_frecuencia"))
+    ):
+        return True
+
+    return False
+
+
+def _collect_resolution_facts(response: dict[str, Any]) -> dict[str, Any]:
+    metadata = _as_dict(response.get("metadata"))
+    clarification_context = _as_dict(metadata.get("clarification_context"))
+    facts = {
+        **_as_dict(clarification_context.get("known_facts")),
+        **_as_dict(response.get("facts")),
+    }
+    return {key: value for key, value in facts.items() if value not in (None, "", [], {})}
+
+
+def _reactivity_action_bonus(normalized_action: str, changed_fields: set[str]) -> int:
+    bonus = 0
+    if {"divorcio_modalidad", "hay_acuerdo"} & changed_fields:
+        if any(token in normalized_action for token in ("unilateral", "presentacion propia", "presentacion conjunta", "propuesta reguladora propia")):
+            bonus += 8
+    if "hay_hijos" in changed_fields:
+        if any(token in normalized_action for token in ("alimentos", "cuidado", "comunicacion", "hijos")):
+            bonus += 7
+    if {"convenio_regulador", "cuota_alimentaria_porcentaje", "regimen_comunicacional"} & changed_fields:
+        if any(token in normalized_action for token in ("homolog", "convenio", "base de calculo", "clausula", "comunicacion")):
+            bonus += 9
+    return bonus
+
+
+def _compress_redundant_actions(actions: list[str], *, case_domain: str) -> list[str]:
+    compressed: list[str] = []
+    seen_drafting_groups: set[str] = set()
+    for action in actions:
+        text = str(action or "").strip()
+        normalized = _normalize_text(text)
+        if not normalized:
+            continue
+        if case_domain.casefold() == "divorcio" and "redact" in normalized:
+            if any(token in normalized for token in ("convenio", "acuerdo", "clausula", "cuota", "comunicacion")):
+                group = "divorce_agreement_drafting"
+                if group in seen_drafting_groups:
+                    continue
+                seen_drafting_groups.add(group)
+        compressed.append(text)
+    return compressed
+
+
+def _pick_reactive_quick_start_action(
+    actions: list[str],
+    *,
+    strategy_reactivity: dict[str, Any],
+    case_domain: str,
+) -> str:
+    if not bool(strategy_reactivity.get("stale")):
+        return ""
+    changed_fields = {
+        str(item).strip()
+        for item in (strategy_reactivity.get("changed_fields") or [])
+        if str(item).strip()
+    }
+    normalized_domain = _normalize_text(case_domain)
+    for action in _compress_redundant_actions(actions, case_domain=case_domain):
+        normalized = _normalize_text(action)
+        if normalized_domain == "divorcio":
+            if {"convenio_regulador", "cuota_alimentaria_porcentaje", "regimen_comunicacional"} & changed_fields:
+                if any(token in normalized for token in ("homolog", "convenio", "base de calculo", "clausula", "comunicacion")):
+                    return action
+            if {"divorcio_modalidad", "hay_acuerdo"} & changed_fields:
+                if any(token in normalized for token in ("unilateral", "presentacion propia", "presentacion conjunta", "propuesta reguladora propia")):
+                    return action
+            if "hay_hijos" in changed_fields:
+                if any(token in normalized for token in ("alimentos", "cuidado", "comunicacion", "hijos")):
+                    return action
+    return ""
 
 
 def _dedupe_paragraphs(text: str) -> str:
