@@ -7,10 +7,12 @@ Requiere:
 Con asyncio_mode="auto", las funciones async y fixtures async se
 manejan automáticamente sin necesidad de @pytest.mark.asyncio explícito.
 """
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from app.auth.dependencies import get_current_user
+from app.config import settings
 from app.main import app
 
 
@@ -32,3 +34,13 @@ async def client():
     ) as ac:
         yield ac
     app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture(autouse=True)
+def _preserve_usage_guardrail_mode():
+    previous_enabled = settings.usage_guardrail_enabled
+    settings.usage_guardrail_enabled = True
+    try:
+        yield
+    finally:
+        settings.usage_guardrail_enabled = previous_enabled

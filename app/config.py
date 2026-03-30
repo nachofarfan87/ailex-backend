@@ -66,6 +66,7 @@ class Settings(BaseSettings):
 
     # App
     env: str = "development"
+    ailex_env: str = "dev"
     app_name: str = "AILEX"
     app_version: str = "0.1.0"
     debug: bool = True
@@ -123,6 +124,21 @@ class Settings(BaseSettings):
     secret_key: str = DEFAULT_SECRET_KEY
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 dias
 
+    # Product environment and usage guardrails
+    usage_guardrail_enabled: Optional[bool] = None
+    usage_guardrail_heavy_query_limit: Optional[int] = None
+    usage_guardrail_heavy_query_window_seconds: Optional[int] = None
+    usage_guardrail_heavy_query_burst_limit: Optional[int] = None
+    usage_guardrail_heavy_query_burst_window_seconds: Optional[int] = None
+    usage_guardrail_read_limit: Optional[int] = None
+    usage_guardrail_read_window_seconds: Optional[int] = None
+    usage_guardrail_read_burst_limit: Optional[int] = None
+    usage_guardrail_read_burst_window_seconds: Optional[int] = None
+    usage_guardrail_control_limit: Optional[int] = None
+    usage_guardrail_control_window_seconds: Optional[int] = None
+    usage_guardrail_control_burst_limit: Optional[int] = None
+    usage_guardrail_control_burst_window_seconds: Optional[int] = None
+
     @field_validator("debug", mode="before")
     @classmethod
     def _parse_debug_value(cls, value):
@@ -148,6 +164,32 @@ class Settings(BaseSettings):
             return "staging"
         return normalized
 
+    @field_validator("ailex_env", mode="before")
+    @classmethod
+    def _parse_ailex_env_value(cls, value):
+        normalized = str(value or "").strip().lower()
+        if normalized in {"", "dev", "development", "local", "test", "testing"}:
+            return "dev"
+        if normalized in {"beta", "staging", "stage"}:
+            return "beta"
+        if normalized in {"prod", "production", "railway"}:
+            return "prod"
+        return normalized
+
+    @field_validator("usage_guardrail_enabled", mode="before")
+    @classmethod
+    def _parse_usage_guardrail_enabled(cls, value):
+        if value in {None, ""}:
+            return None
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "disabled"}:
+            return False
+        return value
+
     @field_validator("port", mode="before")
     @classmethod
     def _parse_port_value(cls, value):
@@ -164,6 +206,35 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env == "production"
+
+    @property
+    def usage_guardrails_active(self) -> bool:
+        if self.usage_guardrail_enabled is not None:
+            return bool(self.usage_guardrail_enabled)
+        return self.ailex_env in {"beta", "prod"}
+
+    def get_usage_guardrail_bucket(self, bucket: str) -> dict[str, Optional[int]]:
+        normalized_bucket = str(bucket or "heavy_query").strip().lower() or "heavy_query"
+        if normalized_bucket == "read":
+            return {
+                "limit": self.usage_guardrail_read_limit,
+                "window_seconds": self.usage_guardrail_read_window_seconds,
+                "burst_limit": self.usage_guardrail_read_burst_limit,
+                "burst_window_seconds": self.usage_guardrail_read_burst_window_seconds,
+            }
+        if normalized_bucket == "control":
+            return {
+                "limit": self.usage_guardrail_control_limit,
+                "window_seconds": self.usage_guardrail_control_window_seconds,
+                "burst_limit": self.usage_guardrail_control_burst_limit,
+                "burst_window_seconds": self.usage_guardrail_control_burst_window_seconds,
+            }
+        return {
+            "limit": self.usage_guardrail_heavy_query_limit,
+            "window_seconds": self.usage_guardrail_heavy_query_window_seconds,
+            "burst_limit": self.usage_guardrail_heavy_query_burst_limit,
+            "burst_window_seconds": self.usage_guardrail_heavy_query_burst_window_seconds,
+        }
 
     @property
     def cors_origin_list(self) -> list[str]:

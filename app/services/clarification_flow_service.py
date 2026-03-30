@@ -8,14 +8,11 @@ from typing import Any
 
 _AMBIGUOUS_SHORT_ANSWERS = {
     "si",
-    "sí",
     "no",
     "puede ser",
     "tal vez",
     "quizas",
-    "quizás",
     "no se",
-    "no sé",
 }
 
 _DIVORCE_UNILATERAL_PATTERNS = (
@@ -23,16 +20,14 @@ _DIVORCE_UNILATERAL_PATTERNS = (
     r"\bsin acuerdo\b",
     r"\bno hay acuerdo\b",
     r"\bno esta de acuerdo\b",
-    r"\bno está de acuerdo\b",
 )
 _DIVORCE_JOINT_PATTERNS = (
     r"\bconjunto(?:s|amente)?\b",
     r"\bcomun acuerdo\b",
-    r"\bcomún acuerdo\b",
     r"\bmutuo acuerdo\b",
     r"\bde acuerdo\b",
 )
-_YES_PATTERNS = (r"\bsi\b", r"\bsí\b", r"\bclaro\b", r"\bcorrecto\b", r"\bexacto\b")
+_YES_PATTERNS = (r"\bsi\b", r"\bclaro\b", r"\bcorrecto\b", r"\bexacto\b")
 _NO_PATTERNS = (r"\bno\b", r"\bpara nada\b")
 _CHILD_REFERENCE_PATTERNS = (
     r"\bhij[oa]s?\b",
@@ -47,8 +42,10 @@ _CHILD_REFERENCE_PATTERNS = (
     r"\bnen[ae]\b",
 )
 _CHILD_AGE_PATTERNS = (
-    r"\b\d{1,2}\s*(anos|aÃ±os|meses|dias)\b",
+    r"\b\d{1,2}\s*(anos|meses|dias)\b",
 )
+_PERCENTAGE_PATTERN = re.compile(r"\b(\d{1,3})\s*%")
+_DAYS_PER_WEEK_PATTERN = re.compile(r"\b(\d{1,2})\s*dias?\b")
 
 
 @dataclass
@@ -162,6 +159,11 @@ def _extract_clarification_answer(
             extracted_facts["hay_acuerdo"] = True
             clarified_fields.extend(["divorcio_modalidad", "hay_acuerdo"])
 
+        divorce_detail_facts = _extract_divorce_arrangement_facts(normalized_answer)
+        if divorce_detail_facts:
+            extracted_facts.update(divorce_detail_facts)
+            clarified_fields.extend(divorce_detail_facts.keys())
+
     if _question_mentions_children(normalized_question) or _answer_mentions_children(normalized_answer):
         child_value = _extract_boolean_flag(
             normalized_answer,
@@ -182,7 +184,11 @@ def _extract_clarification_answer(
             clarified_fields.append("hay_acuerdo")
 
     if "bienes" in normalized_answer or "vivienda" in normalized_answer or "patrimonial" in normalized_answer:
-        bienes = _extract_boolean_flag(normalized_answer, positive_hint="bienes|vivienda|departamento|casa", negative_hint="sin bienes|no hay bienes")
+        bienes = _extract_boolean_flag(
+            normalized_answer,
+            positive_hint="bienes|vivienda|departamento|casa",
+            negative_hint="sin bienes|no hay bienes",
+        )
         if bienes is not None:
             extracted_facts["hay_bienes"] = bienes
             clarified_fields.append("hay_bienes")
@@ -200,12 +206,16 @@ def _extract_clarification_answer(
         if re.search(r"\bsoy (el )?demandad[oa]\b|\bme demandan\b|\bme reclam[ae]n? alimentos\b", normalized_answer):
             extracted_facts["rol_procesal"] = "demandado"
             clarified_fields.append("rol_procesal")
-        elif re.search(r"\bsoy (el )?actor\b|\bquiero reclamar\b|\bvoy a demandar\b|\biniciar(?:e|é)? reclamo\b", normalized_answer):
+        elif re.search(r"\bsoy (el )?actor\b|\bquiero reclamar\b|\bvoy a demandar\b|\biniciare?\b reclamo\b", normalized_answer):
             extracted_facts["rol_procesal"] = "actor"
             clarified_fields.append("rol_procesal")
 
     if "cese de convivencia" in normalized_question or "convivencia" in normalized_answer:
-        cese_convivencia = _extract_boolean_flag(normalized_answer, positive_hint="ya no convivimos|separados|cese de convivencia", negative_hint="seguimos conviviendo")
+        cese_convivencia = _extract_boolean_flag(
+            normalized_answer,
+            positive_hint="ya no convivimos|separados|cese de convivencia",
+            negative_hint="seguimos conviviendo",
+        )
         if cese_convivencia is not None:
             extracted_facts["cese_convivencia"] = cese_convivencia
             clarified_fields.append("cese_convivencia")
@@ -215,7 +225,7 @@ def _extract_clarification_answer(
         precision_prompt = "Necesito que lo aclares con un poco mas de precision para no orientarte sobre una base ambigua."
 
     answer_status = "precise" if clarified_fields else "ambiguous" if precision_required else "unknown"
-    if extracted_facts == known_facts:
+    if extracted_facts and all(known_facts.get(key) == value for key, value in extracted_facts.items()):
         answer_status = "unknown"
     return {
         "facts": extracted_facts,
@@ -238,7 +248,10 @@ def _compose_effective_query(
 
     clarification_bits = _facts_to_query_clauses(merged_facts)
     if clarification_bits:
-        return f"{base_query}. Aclaraciones del usuario: {'; '.join(clarification_bits)}."
+        effective_query = f"{base_query}. Aclaraciones del usuario: {'; '.join(clarification_bits)}."
+        if _answer_adds_structural_detail(answer, clarification_bits):
+            return f"{effective_query} Detalle textual del usuario: {answer}."
+        return effective_query
     if len(answer.split()) >= 4:
         return f"{base_query}. Aclaracion del usuario: {answer}."
     return base_query
@@ -253,6 +266,18 @@ def _facts_to_query_clauses(facts: dict[str, Any]) -> list[str]:
         clauses.append("hay hijos" if bool(facts.get("hay_hijos")) else "no hay hijos")
     if "hay_acuerdo" in facts:
         clauses.append("hay acuerdo" if bool(facts.get("hay_acuerdo")) else "no hay acuerdo")
+    if bool(facts.get("convenio_regulador")):
+        clauses.append("hay convenio regulador")
+    cuota_porcentaje = _clean_text(facts.get("cuota_alimentaria_porcentaje"))
+    if cuota_porcentaje:
+        clauses.append(f"alimentos pactados en {cuota_porcentaje} del sueldo")
+    elif bool(facts.get("alimentos_definidos")):
+        clauses.append("alimentos definidos en el convenio")
+    frecuencia = _clean_text(facts.get("regimen_comunicacional_frecuencia"))
+    if frecuencia:
+        clauses.append(f"regimen comunicacional de {frecuencia}")
+    elif bool(facts.get("regimen_comunicacional")):
+        clauses.append("regimen comunicacional definido")
     if "rol_procesal" in facts:
         clauses.append(f"rol procesal {facts.get('rol_procesal')}")
     if "urgencia" in facts and bool(facts.get("urgencia")):
@@ -318,6 +343,64 @@ def _extract_boolean_flag(text: str, *, positive_hint: str, negative_hint: str) 
 
 def _matches_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _extract_divorce_arrangement_facts(answer: str) -> dict[str, Any]:
+    extracted: dict[str, Any] = {}
+
+    if "convenio" in answer or "propuesta reguladora" in answer:
+        extracted["convenio_regulador"] = True
+
+    if any(term in answer for term in ("alimentos", "cuota alimentaria", "cuota", "manutencion")):
+        extracted["alimentos_definidos"] = True
+        percentage_match = _PERCENTAGE_PATTERN.search(answer)
+        if percentage_match:
+            extracted["cuota_alimentaria_porcentaje"] = f"{percentage_match.group(1)}%"
+
+    if any(term in answer for term in ("regimen comunicacional", "regimen de comunicacion", "visitas", "comunicacion")):
+        extracted["regimen_comunicacional"] = True
+        frequency = _extract_regimen_frequency(answer)
+        if frequency:
+            extracted["regimen_comunicacional_frecuencia"] = frequency
+
+    return extracted
+
+
+def _extract_regimen_frequency(answer: str) -> str:
+    per_week_match = re.search(r"\b(\d{1,2})\s*dias?\s+de\s+la\s+semana\b", answer)
+    if per_week_match:
+        return f"{per_week_match.group(1)} dias por semana"
+
+    days_match = _DAYS_PER_WEEK_PATTERN.search(answer)
+    if days_match and any(term in answer for term in ("semana", "semanal")):
+        return f"{days_match.group(1)} dias por semana"
+
+    return ""
+
+
+def _answer_adds_structural_detail(answer: str, clarification_bits: list[str]) -> bool:
+    cleaned_answer = _clean_text(answer)
+    if len(cleaned_answer.split()) < 6:
+        return False
+
+    normalized_answer = _normalize_text(cleaned_answer)
+    structural_markers = (
+        "convenio",
+        "propuesta reguladora",
+        "alimentos",
+        "cuota",
+        "%",
+        "sueldo",
+        "regimen comunicacional",
+        "regimen de comunicacion",
+        "dias de la semana",
+        "visitas",
+    )
+    if not any(marker in normalized_answer for marker in structural_markers):
+        return False
+
+    normalized_bits = " ".join(_normalize_text(item) for item in clarification_bits)
+    return normalized_answer not in normalized_bits
 
 
 def _merge_dicts(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:

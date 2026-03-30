@@ -39,6 +39,7 @@ from app.services.safety_classifier import (
 from app.services.request_guardrail_service import evaluate_query_input
 from app.services.usage_guardrail_service import evaluate_usage_guardrail, reset_usage_guardrails
 from app.api.monitoring import _build_alerts, _compute_health_status
+from app.config import settings
 
 
 # ─── 1. Config centralizada se usa realmente ──────────────────────────────────
@@ -196,6 +197,26 @@ class TestUsageGuardrailCompat:
         assert result["allowed"] is False
         assert result["safety_status"] == "rate_limited"
         assert result["fallback_type"] == "rate_limited"
+
+    def test_dev_mode_disables_usage_guardrail_cleanly(self):
+        previous_enabled = settings.usage_guardrail_enabled
+        previous_env = settings.ailex_env
+        settings.usage_guardrail_enabled = None
+        settings.ailex_env = "dev"
+        try:
+            for _ in range(USAGE_GUARDRAIL_LIMITS["heavy_query"]["limit"] + 3):
+                result = evaluate_usage_guardrail(
+                    user_id="internal-dev",
+                    source_ip=None,
+                    route_path="/api/test",
+                    bucket="heavy_query",
+                )
+            assert result["allowed"] is True
+            assert result["enabled"] is False
+            assert result["ailex_env"] == "dev"
+        finally:
+            settings.usage_guardrail_enabled = previous_enabled
+            settings.ailex_env = previous_env
 
 
 # ─── 5. Fallback type propagation ─────────────────────────────────────────────

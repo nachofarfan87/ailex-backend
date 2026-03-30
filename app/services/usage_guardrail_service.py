@@ -4,6 +4,7 @@ from collections import defaultdict
 from threading import Lock
 from typing import Any
 
+from app.config import settings
 from app.services.safety_constants import USAGE_GUARDRAIL_LIMITS
 from app.services.utc import utc_now
 
@@ -18,11 +19,30 @@ def evaluate_usage_guardrail(
     route_path: str,
     bucket: str = "heavy_query",
 ) -> dict[str, Any]:
-    config = dict(USAGE_GUARDRAIL_LIMITS.get(bucket) or USAGE_GUARDRAIL_LIMITS["heavy_query"])
+    config = _resolve_usage_guardrail_config(bucket)
     limit = int(config["limit"])
     window_seconds = int(config["window_seconds"])
     burst_limit = int(config.get("burst_limit") or 0)
     burst_window_seconds = int(config.get("burst_window_seconds") or 0)
+    guardrails_active = bool(settings.usage_guardrails_active)
+    if not guardrails_active:
+        return {
+            "allowed": True,
+            "enabled": False,
+            "ailex_env": settings.ailex_env,
+            "safety_status": "normal",
+            "bucket": bucket,
+            "route_path": route_path,
+            "reasons": [],
+            "dominant_safety_reason": None,
+            "fallback_type": None,
+            "retry_after_seconds": None,
+            "limit": limit,
+            "window_seconds": window_seconds,
+            "burst_limit": burst_limit,
+            "burst_window_seconds": burst_window_seconds,
+        }
+
     now = utc_now()
     scope_keys = _build_scope_keys(user_id=user_id, source_ip=source_ip, bucket=bucket)
     retention_window_seconds = max(window_seconds, burst_window_seconds or 0)
@@ -51,6 +71,8 @@ def evaluate_usage_guardrail(
                 reason = f"burst_limit_exceeded_{scope_type}"
                 return {
                     "allowed": False,
+                    "enabled": True,
+                    "ailex_env": settings.ailex_env,
                     "safety_status": "rate_limited",
                     "bucket": bucket,
                     "route_path": route_path,
@@ -69,6 +91,8 @@ def evaluate_usage_guardrail(
                 reason = f"rate_limit_exceeded_{scope_type}"
                 return {
                     "allowed": False,
+                    "enabled": True,
+                    "ailex_env": settings.ailex_env,
                     "safety_status": "rate_limited",
                     "bucket": bucket,
                     "route_path": route_path,
@@ -87,6 +111,8 @@ def evaluate_usage_guardrail(
 
     return {
         "allowed": True,
+        "enabled": True,
+        "ailex_env": settings.ailex_env,
         "safety_status": "normal",
         "bucket": bucket,
         "route_path": route_path,
@@ -98,6 +124,19 @@ def evaluate_usage_guardrail(
         "window_seconds": window_seconds,
         "burst_limit": burst_limit,
         "burst_window_seconds": burst_window_seconds,
+    }
+
+
+def _resolve_usage_guardrail_config(bucket: str) -> dict[str, int]:
+    configured = settings.get_usage_guardrail_bucket(bucket)
+    default_config = dict(USAGE_GUARDRAIL_LIMITS.get(bucket) or USAGE_GUARDRAIL_LIMITS["heavy_query"])
+    return {
+        "limit": int(configured.get("limit") or default_config["limit"]),
+        "window_seconds": int(configured.get("window_seconds") or default_config["window_seconds"]),
+        "burst_limit": int(configured.get("burst_limit") or default_config.get("burst_limit") or 0),
+        "burst_window_seconds": int(
+            configured.get("burst_window_seconds") or default_config.get("burst_window_seconds") or 0
+        ),
     }
 
 

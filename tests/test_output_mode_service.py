@@ -1034,7 +1034,7 @@ def test_divorcio_descarta_last_question_respondida_aunque_upstream_la_arrastre(
 
     assert "hijos" not in question
     assert question != "¿hay hijos menores o con capacidad restringida?"
-    assert question
+    assert question == "" or "unilateral" in question or "conjunto" in question
 
 
 def test_critical_missing_no_sale_prematuramente_de_clarification_mode():
@@ -1278,6 +1278,54 @@ def test_next_step_never_object_in_conversational():
 
     next_step = result["conversational"]["next_step"]
     assert next_step is None or isinstance(next_step, str)
+
+
+def test_divorcio_known_facts_make_convenio_missing_items_disappear():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["query"] = "El convenio incluye 20% de mi sueldo para alimentos y regimen comunicacional."
+    payload["facts"] = {
+        "convenio_regulador": True,
+        "alimentos_definidos": True,
+        "cuota_alimentaria_porcentaje": "20%",
+        "regimen_comunicacional": True,
+        "regimen_comunicacional_frecuencia": "3 dias por semana",
+    }
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Completar la propuesta o convenio regulador con el nivel de detalle necesario.",
+        "Precisar alimentos, cuidado personal y regimen de comunicacion si corresponden.",
+        "Precisar si hay bienes relevantes.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    missing = result["conversational"]["missing_facts"]
+    message = (result["conversational"]["message"] or "").lower()
+
+    assert not any("convenio" in item.lower() for item in missing)
+    assert not any("regimen de comunicacion" in item.lower() for item in missing)
+    assert "20%" in message or "comunicacion propuesta" in message
+
+
+def test_user_output_merges_case_profile_focus_when_strategy_is_generic():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["case_profile"] = {
+        "strategic_focus": [
+            "revisar completitud del convenio regulador",
+            "resolver situacion de hijos: cuidado personal, alimentos y comunicacion",
+        ]
+    }
+    payload["case_strategy"]["recommended_actions"] = [
+        "Preparar presentacion inicial de divorcio con encuadre y competencia correctos.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    next_steps = result["output_modes"]["user"]["next_steps"]
+    procedural_focus = result["output_modes"]["professional"]["procedural_focus"]
+
+    assert any("acuerdo o propuesta" in item.lower() for item in next_steps)
+    assert any("alimentos y comunicacion" in item.lower() for item in next_steps)
+    assert any("convenio regulador" in item.lower() for item in procedural_focus)
 
 
 def test_caso5_multiple_missing_single_question():

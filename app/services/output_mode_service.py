@@ -165,6 +165,9 @@ _DOMAIN_FIELD_PRIORITIES: dict[str, dict[str, float]] = {
         "divorcio_modalidad": 1.0,
         "hay_hijos": 0.9,
         "hay_acuerdo": 0.85,
+        "convenio_regulador": 0.7,
+        "alimentos_definidos": 0.68,
+        "regimen_comunicacional": 0.68,
         "cese_convivencia": 0.6,
         "hay_bienes": 0.5,
         "vivienda_familiar": 0.45,
@@ -196,6 +199,22 @@ _FIELD_PRIORITY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "común acuerdo",
         "variante procesal",
         "presentacion conjunta",
+    )),
+    ("convenio_regulador", (
+        "convenio regulador",
+        "propuesta reguladora",
+        "convenio",
+    )),
+    ("alimentos_definidos", (
+        "alimentos",
+        "cuota alimentaria",
+        "cuota",
+    )),
+    ("regimen_comunicacional", (
+        "regimen comunicacional",
+        "regimen de comunicacion",
+        "visitas",
+        "comunicacion",
     )),
     ("hay_hijos", (
         "hijos",
@@ -276,6 +295,9 @@ _FIELD_TO_HUMAN_QUESTION: dict[str, str] = {
     "cese_convivencia": "¿Ya dejaron de convivir?",
     "hay_bienes": "¿Hay bienes relevantes (inmuebles, vehiculos, ahorros)?",
     "vivienda_familiar": "¿Hay una vivienda familiar en juego?",
+    "convenio_regulador": "¿Ya tienen un convenio o propuesta reguladora armada?",
+    "alimentos_definidos": "¿Ya definieron alimentos dentro del convenio?",
+    "regimen_comunicacional": "¿Ya definieron un regimen de comunicacion?",
 }
 
 # Keyword → field mapping used to convert free-text missing facts into a
@@ -283,6 +305,9 @@ _FIELD_TO_HUMAN_QUESTION: dict[str, str] = {
 _MISSING_TEXT_TO_FIELD: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("divorcio_modalidad", ("unilateral", "conjunto", "mutuo acuerdo", "comun acuerdo", "variante procesal", "presentacion conjunta", "tipo de divorcio")),
     ("hay_hijos", ("hijos", "menores", "responsabilidad parental", "cuidado personal", "regimen de comunicacion")),
+    ("convenio_regulador", ("convenio regulador", "propuesta reguladora", "convenio")),
+    ("alimentos_definidos", ("alimentos", "cuota alimentaria", "cuota")),
+    ("regimen_comunicacional", ("regimen comunicacional", "regimen de comunicacion", "visitas", "comunicacion")),
     ("hay_acuerdo", ("hay acuerdo", "acuerdo entre",)),
     ("rol_procesal", ("actor", "demandado", "rol procesal", "quien inicia", "quien promueve", "quien demanda")),
     ("urgencia", ("urgencia", "cautelar", "peligro en la demora", "tutela anticipada", "proteccion urgente")),
@@ -320,6 +345,7 @@ _QUERY_FACT_PATTERNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("tema_cuidado", "inferred", (
         r"\bcuidado personal\b", r"\btenencia\b", r"\bguarda\b",
         r"\bregimen de (comunicacion|visitas)\b",
+        r"\bregimen comunicacional\b",
     )),
     ("vinculo_parental", "inferred", (
         r"\bpadre\b", r"\bmadre\b", r"\bprogenitor", r"\bpapa\b", r"\bmama\b",
@@ -486,6 +512,7 @@ def explain_confidence(response: dict[str, Any], mode: str) -> str:
 def _build_user_output(response: dict[str, Any], conversational: dict[str, Any]) -> dict[str, Any]:
     case_domain = _clean_text(response.get("case_domain"))
     case_strategy = _as_dict(response.get("case_strategy"))
+    case_profile = _as_dict(response.get("case_profile"))
     quick_start = _clean_text(response.get("quick_start"))
     summary_source = _first_nonempty_text(
         _as_dict(response.get("reasoning")).get("short_answer"),
@@ -498,6 +525,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         quick_start,
     )
     next_steps = _to_user_list(case_strategy.get("recommended_actions") or [])
+    next_steps = _dedupe_strs([*next_steps, *_to_user_list(case_profile.get("strategic_focus") or [])])
     if not next_steps and quick_start:
         next_steps = [_strip_known_prefix(quick_start, "Primer paso recomendado:")]
 
@@ -541,6 +569,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
 def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
     case_domain = _clean_text(response.get("case_domain"))
     case_strategy = _as_dict(response.get("case_strategy"))
+    case_profile = _as_dict(response.get("case_profile"))
     normative_focus = _build_normative_focus(_as_dict(response.get("normative_reasoning")))
     summary = _professional_summary(response)
     return {
@@ -550,7 +579,10 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
         "conflict_summary": _dedupe_strs(_as_str_list(case_strategy.get("conflict_summary"))),
         "recommended_actions": _dedupe_strs(_as_str_list(case_strategy.get("recommended_actions"))),
         "risk_analysis": _dedupe_strs(_as_str_list(case_strategy.get("risk_analysis"))),
-        "procedural_focus": _dedupe_strs(_as_str_list(case_strategy.get("procedural_focus"))),
+        "procedural_focus": _dedupe_strs([
+            *_as_str_list(case_strategy.get("procedural_focus")),
+            *_as_str_list(case_profile.get("strategic_focus")),
+        ]),
         "critical_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("critical_missing_information"))),
         "ordinary_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("ordinary_missing_information"))),
         "normative_focus": normative_focus,
@@ -721,6 +753,9 @@ def _build_memory_phrase(known_facts: dict[str, Any]) -> str:
         "divorcio_modalidad",
         "hay_hijos",
         "hay_acuerdo",
+        "convenio_regulador",
+        "cuota_alimentaria_porcentaje",
+        "regimen_comunicacional_frecuencia",
         "rol_procesal",
         "urgencia",
         "hay_bienes",
@@ -754,6 +789,14 @@ def _fact_to_memory_snippet(field: str, value: Any) -> str:
         return "con hijos" if bool(value) else "sin hijos"
     if field == "hay_acuerdo":
         return "con acuerdo" if bool(value) else "sin acuerdo"
+    if field == "convenio_regulador":
+        return "ya hay un convenio base" if bool(value) else ""
+    if field == "cuota_alimentaria_porcentaje":
+        porcentaje = _clean_text(value)
+        return f"alimentos en {porcentaje} del sueldo" if porcentaje else ""
+    if field == "regimen_comunicacional_frecuencia":
+        frecuencia = _clean_text(value)
+        return f"comunicacion propuesta de {frecuencia}" if frecuencia else ""
     if field == "rol_procesal":
         rol = _clean_text(value)
         return f"actuas como {rol}" if rol else ""
@@ -1242,6 +1285,21 @@ def _item_is_resolved(
         return True
 
     if "convivencia" in normalized and "cese_convivencia" in known_facts:
+        return True
+
+    if any(term in normalized for term in ("convenio regulador", "propuesta reguladora", "convenio")) and known_facts.get("convenio_regulador") is True:
+        return True
+
+    if "alimentos" in normalized and (
+        known_facts.get("alimentos_definidos") is True
+        or _clean_text(known_facts.get("cuota_alimentaria_porcentaje"))
+    ):
+        return True
+
+    if any(term in normalized for term in ("regimen comunicacional", "regimen de comunicacion", "visitas", "comunicacion")) and (
+        known_facts.get("regimen_comunicacional") is True
+        or _clean_text(known_facts.get("regimen_comunicacional_frecuencia"))
+    ):
         return True
 
     if case_domain.casefold() == "divorcio" and "propuesta reguladora" in normalized and known_facts.get("hay_acuerdo") is True:

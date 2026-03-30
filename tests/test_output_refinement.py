@@ -164,6 +164,71 @@ def test_dedupe_missing_information_equivalente_colapsa_a_una_sola_formulacion()
     ]
 
 
+def test_divorce_agreement_facts_enrich_visible_strategy_and_risks():
+    payload = _base_response()
+    payload["query"] = (
+        "Quiero divorciarme. Tengo una hija de 3 meses. "
+        "El convenio incluye 20% de mi sueldo para alimentos y regimen comunicacional para 3 dias por semana."
+    )
+    payload["facts"] = {
+        "hay_hijos": True,
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+        "convenio_regulador": True,
+        "alimentos_definidos": True,
+        "cuota_alimentaria_porcentaje": "20%",
+        "regimen_comunicacional": True,
+        "regimen_comunicacional_frecuencia": "3 dias por semana",
+    }
+    payload["reasoning"] = {
+        "short_answer": "La consulta permite orientar una estrategia base de divorcio."
+    }
+    payload["case_strategy"]["ordinary_missing_information"] = [
+        "Completar la propuesta o convenio regulador con el nivel de detalle necesario.",
+        "Precisar alimentos, cuidado personal y regimen de comunicacion si corresponden.",
+        "Precisar bienes, vivienda familiar y eventual compensacion economica.",
+    ]
+
+    response = output_refinement_service.refine(payload)
+    reasoning = response["reasoning"]["short_answer"].lower()
+    actions = [item.lower() for item in response["case_strategy"]["recommended_actions"]]
+    risks = [item.lower() for item in response["case_strategy"]["risk_analysis"]]
+    procedural_focus = [item.lower() for item in response["case_strategy"]["procedural_focus"]]
+    ordinary_missing = [item.lower() for item in response["case_strategy"]["ordinary_missing_information"]]
+
+    assert "homologacion" in reasoning
+    assert "base de calculo" in reasoning
+    assert any("homologacion" in item for item in actions)
+    assert any("base de calculo" in item for item in actions)
+    assert any("porcentaje" in item or "base de calculo" in item for item in risks)
+    assert any("nino muy pequeno" in item for item in risks)
+    assert any("auditar la precision ejecutable del convenio" in item for item in procedural_focus)
+    assert any("gradualidad" in item for item in procedural_focus)
+    assert any("base de calculo" in item for item in ordinary_missing)
+    assert not any("completar la propuesta o convenio regulador" in item for item in ordinary_missing)
+    assert not any("precisar alimentos, cuidado personal y regimen de comunicacion si corresponden" in item for item in ordinary_missing)
+
+
+def test_divorce_agreement_enrichment_is_noop_without_relevant_facts():
+    payload = _base_response()
+    payload["query"] = "Quiero divorciarme y necesito orientacion inicial."
+    payload["facts"] = {
+        "hay_hijos": True,
+        "divorcio_modalidad": "unilateral",
+    }
+    payload["reasoning"] = {
+        "short_answer": "La consulta permite orientar una estrategia base de divorcio."
+    }
+    original_reasoning = payload["reasoning"]["short_answer"]
+
+    response = output_refinement_service.refine(payload)
+    actions = [item.lower() for item in response["case_strategy"]["recommended_actions"]]
+
+    assert response["reasoning"]["short_answer"] == original_reasoning
+    assert not any("homologacion" in item for item in actions)
+    assert not any("base de calculo" in item for item in actions)
+
+
 # ---------------------------------------------------------------------------
 # Quick-start integration into response_text (via ResponsePostprocessor)
 # ---------------------------------------------------------------------------

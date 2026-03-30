@@ -5,6 +5,8 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 from typing import Any
 
+from app.services.divorce_agreement_evaluation_service import build_divorce_agreement_enrichment
+
 
 _SIMILARITY_THRESHOLD = 0.9
 _MAX_ACTIONS = 5
@@ -101,6 +103,7 @@ _HIGH_RISK_WARNING_PATTERNS = (
 
 def refine(response: dict[str, Any]) -> dict[str, Any]:
     refined = deepcopy(response or {})
+    refined = _apply_divorce_agreement_enrichment(refined)
     refined = dedupe_output_blocks(refined)
 
     case_domains = dedupe_domains(_as_str_list(refined.get("case_domains")))
@@ -127,6 +130,62 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
             refined["quick_start"] = quick_start
 
     refined = rebalance_missing_info_and_confidence(refined)
+    return refined
+
+
+def _apply_divorce_agreement_enrichment(response: dict[str, Any]) -> dict[str, Any]:
+    refined = deepcopy(response or {})
+    enrichment = build_divorce_agreement_enrichment(refined)
+    if not enrichment:
+        return refined
+
+    reasoning = _as_dict(refined.get("reasoning"))
+    summary = str(enrichment.get("summary") or "").strip()
+    if summary:
+        reasoning["short_answer"] = summary
+        refined["reasoning"] = reasoning
+
+    case_strategy = _as_dict(refined.get("case_strategy"))
+    strategic_narrative = str(enrichment.get("strategic_narrative") or "").strip()
+    if strategic_narrative:
+        existing_narrative = str(case_strategy.get("strategic_narrative") or "").strip()
+        case_strategy["strategic_narrative"] = "\n\n".join(
+            item for item in (strategic_narrative, existing_narrative) if item
+        )
+
+    for field_name in ("recommended_actions", "risk_analysis", "procedural_focus"):
+        additions = _as_str_list(enrichment.get(field_name))
+        if additions:
+            case_strategy[field_name] = [*additions, *_as_str_list(case_strategy.get(field_name))]
+
+    ordinary_missing = _as_str_list(case_strategy.get("ordinary_missing_information"))
+    ordinary_missing = _drop_generic_divorce_agreement_missing_items(ordinary_missing)
+    enriched_missing = _as_str_list(enrichment.get("ordinary_missing_information"))
+    case_strategy["ordinary_missing_information"] = [*enriched_missing, *ordinary_missing]
+    case_strategy["missing_information"] = [
+        *_as_str_list(case_strategy.get("critical_missing_information")),
+        *case_strategy["ordinary_missing_information"],
+    ]
+    refined["case_strategy"] = case_strategy
+
+    normative_reasoning = _as_dict(refined.get("normative_reasoning"))
+    unresolved_issues = _drop_generic_divorce_agreement_missing_items(
+        _as_str_list(normative_reasoning.get("unresolved_issues"))
+    )
+    if enriched_missing or unresolved_issues:
+        normative_reasoning["unresolved_issues"] = [*enriched_missing, *unresolved_issues]
+        refined["normative_reasoning"] = normative_reasoning
+
+    case_profile = _as_dict(refined.get("case_profile"))
+    strategic_focus = _as_str_list(case_profile.get("strategic_focus"))
+    strategic_focus = [
+        *(_as_str_list(enrichment.get("procedural_focus"))[:2]),
+        *strategic_focus,
+    ]
+    if strategic_focus:
+        case_profile["strategic_focus"] = strategic_focus
+        refined["case_profile"] = case_profile
+
     return refined
 
 
@@ -394,6 +453,21 @@ def _is_critical_missing(normalized_text: str) -> bool:
 
 def _normalize_missing_statement(text: str) -> str:
     normalized = _normalize_text(text)
+    if any(
+        token in normalized
+        for token in (
+            "homolog",
+            "base de calculo",
+            "gastos extraordinarios",
+            "precision suficiente",
+            "precision ejecutable",
+            "modalidad concreta del regimen comunicacional",
+        )
+    ):
+        cleaned_specific = str(text or "").strip()
+        if cleaned_specific and cleaned_specific[-1] not in ".!?":
+            cleaned_specific += "."
+        return cleaned_specific
     canonical_groups = (
         (
             ("si sera unilateral o conjunto", "si será unilateral o conjunto", "falta definir via", "falta definir modalidad procesal", "via procesal"),
@@ -428,6 +502,18 @@ def _normalize_missing_statement(text: str) -> str:
     if cleaned and cleaned[-1] not in ".!?":
         cleaned += "."
     return cleaned
+
+
+def _drop_generic_divorce_agreement_missing_items(items: list[str]) -> list[str]:
+    filtered: list[str] = []
+    for item in items:
+        normalized = _normalize_text(item)
+        if "convenio regulador" in normalized or "propuesta reguladora" in normalized:
+            continue
+        if "alimentos" in normalized and "regimen de comunicacion" in normalized:
+            continue
+        filtered.append(item)
+    return filtered
 
 
 def _dedupe_paragraphs(text: str) -> str:
