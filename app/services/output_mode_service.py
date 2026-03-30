@@ -610,6 +610,30 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         case_domain=case_domain,
     )
     selected_question = _select_primary_question(response, critical_missing, ordinary_missing, question_candidates)
+    if _question_is_stale_after_clarification(
+        selected_question,
+        clarification_context=clarification_context,
+        known_facts=known_facts,
+        question_candidates=question_candidates,
+    ):
+        alternative_candidates = [
+            candidate
+            for candidate in question_candidates
+            if _normalize_text(candidate.get("question")) != _normalize_text(selected_question or "")
+        ]
+        selected_question = _select_primary_question(
+            response,
+            critical_missing,
+            ordinary_missing,
+            alternative_candidates,
+        )
+        if _question_is_stale_after_clarification(
+            selected_question,
+            clarification_context=clarification_context,
+            known_facts=known_facts,
+            question_candidates=alternative_candidates,
+        ):
+            selected_question = None
     question_slot_key = _infer_question_slot_key(selected_question, question_candidates)
 
     precision_prompt = _clean_text(clarification_context.get("precision_prompt"))
@@ -914,6 +938,36 @@ def _infer_question_slot_key(
             return inferred
 
     return _infer_priority_field(text=question_text, category="")
+
+
+def _question_is_stale_after_clarification(
+    selected_question: str | None,
+    *,
+    clarification_context: dict[str, Any],
+    known_facts: dict[str, Any],
+    question_candidates: list[dict[str, str]],
+) -> bool:
+    question_text = _clean_text(selected_question)
+    if not question_text:
+        return False
+
+    normalized_question = _normalize_text(question_text)
+    normalized_last_question = _normalize_text(clarification_context.get("last_question") or "")
+    answer_status = _clean_text(clarification_context.get("answer_status")).casefold()
+    clarified_fields = {
+        _clean_text(item)
+        for item in _as_str_list(clarification_context.get("clarified_fields"))
+        if _clean_text(item)
+    }
+    inferred_field = _infer_question_slot_key(question_text, question_candidates)
+
+    if answer_status == "precise" and normalized_last_question and normalized_question == normalized_last_question:
+        return True
+    if inferred_field and inferred_field in clarified_fields:
+        return True
+    if inferred_field and _has_meaningful_fact(known_facts, inferred_field):
+        return True
+    return False
 
 
 def _should_ask_first(

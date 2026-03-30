@@ -34,6 +34,21 @@ _DIVORCE_JOINT_PATTERNS = (
 )
 _YES_PATTERNS = (r"\bsi\b", r"\bsí\b", r"\bclaro\b", r"\bcorrecto\b", r"\bexacto\b")
 _NO_PATTERNS = (r"\bno\b", r"\bpara nada\b")
+_CHILD_REFERENCE_PATTERNS = (
+    r"\bhij[oa]s?\b",
+    r"\bhija\b",
+    r"\bhijo\b",
+    r"\bmi hija\b",
+    r"\bmi hijo\b",
+    r"\bmis hijas\b",
+    r"\bmis hijos\b",
+    r"\bmenor(?:es)?\b",
+    r"\bbebe\b",
+    r"\bnen[ae]\b",
+)
+_CHILD_AGE_PATTERNS = (
+    r"\b\d{1,2}\s*(anos|aÃ±os|meses|dias)\b",
+)
 
 
 @dataclass
@@ -147,11 +162,18 @@ def _extract_clarification_answer(
             extracted_facts["hay_acuerdo"] = True
             clarified_fields.extend(["divorcio_modalidad", "hay_acuerdo"])
 
-    if _question_mentions_children(normalized_question) or "hijos" in normalized_answer:
-        child_value = _extract_boolean_flag(normalized_answer, positive_hint="hijos", negative_hint="sin hijos|no hay hijos|no tenemos hijos")
+    if _question_mentions_children(normalized_question) or _answer_mentions_children(normalized_answer):
+        child_value = _extract_boolean_flag(
+            normalized_answer,
+            positive_hint="hijos|hijas|hija|hijo|mi hija|mi hijo|mis hijas|mis hijos|bebe|nena|nene|menor|menores",
+            negative_hint="sin hijos|sin hijas|no hay hijos|no hay hijas|no tenemos hijos|no tenemos hijas|no hay menores",
+        )
         if child_value is not None:
             extracted_facts["hay_hijos"] = child_value
             clarified_fields.append("hay_hijos")
+        if child_value is True and _answer_mentions_children_age(normalized_answer):
+            extracted_facts["hay_hijos_edad"] = "informada"
+            clarified_fields.append("hay_hijos_edad")
 
     if _question_mentions_agreement(normalized_question) and "divorcio_modalidad" not in extracted_facts:
         agreement = _extract_yes_no(normalized_answer)
@@ -257,6 +279,14 @@ def _question_needs_disambiguation(question: str) -> bool:
 
 def _question_mentions_children(question: str) -> bool:
     return "hijos" in question or "menor" in question
+
+
+def _answer_mentions_children(answer: str) -> bool:
+    return any(re.search(pattern, answer) for pattern in _CHILD_REFERENCE_PATTERNS)
+
+
+def _answer_mentions_children_age(answer: str) -> bool:
+    return any(re.search(pattern, answer) for pattern in _CHILD_AGE_PATTERNS)
 
 
 def _question_mentions_agreement(question: str) -> bool:

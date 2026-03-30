@@ -991,7 +991,50 @@ def test_divorcio_no_repite_pregunta_de_hijos_si_ya_estan_definidos():
     question = (result["conversational"]["question"] or "").lower()
 
     assert "hijos" not in question
-    assert "unilateral" in question or "comun acuerdo" in question
+    assert question != "¿hay hijos menores o con capacidad restringida?"
+    assert question
+
+
+def test_divorcio_descarta_last_question_respondida_aunque_upstream_la_arrastre():
+    payload = _refined_response()
+    payload["query"] = "Esta mi hija de 3 meses"
+    payload["case_domain"] = "divorcio"
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "¿Hay hijos menores o con capacidad restringida?",
+            "asked_questions": ["¿Hay hijos menores o con capacidad restringida?"],
+            "known_facts": {"hay_hijos": True, "hay_hijos_edad": "informada"},
+            "clarified_fields": ["hay_hijos", "hay_hijos_edad"],
+            "last_user_answer": "Esta mi hija de 3 meses",
+            "answer_status": "precise",
+        }
+    }
+    payload["facts"] = {"hay_hijos": True, "hay_hijos_edad": "informada"}
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "¿Hay hijos menores o con capacidad restringida?",
+                "purpose": "Determinar competencia y eventuales necesidades de notificacion.",
+                "priority": "alta",
+                "category": "hijos",
+            },
+            {
+                "question": "¿El divorcio va a ser de comun acuerdo o unilateral?",
+                "purpose": "Definir la variante procesal del divorcio y evitar un encuadre incompleto.",
+                "priority": "alta",
+                "category": "variante_divorcio",
+            },
+        ],
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "hijos" not in question
+    assert question != "¿hay hijos menores o con capacidad restringida?"
+    assert question
 
 
 def test_critical_missing_no_sale_prematuramente_de_clarification_mode():
