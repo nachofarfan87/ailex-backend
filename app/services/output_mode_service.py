@@ -4,7 +4,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from app.services.conversational import build_conversational_response
+from app.services.conversational import build_conversation_memory, build_conversational_response
 from app.services.conversational.conversational_quality import (
     apply_conversational_style,
     build_contextual_opening,
@@ -442,6 +442,7 @@ def _sync_with_conversation_memory(
             conversational["question"] = None
             if conversational.get("should_ask_first"):
                 conversational["should_ask_first"] = False
+            conversational["guided_response"] = None
 
 
 def _question_targets_resolved_slot(question: str, resolved_slots: set[str]) -> bool:
@@ -564,6 +565,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
     case_domain = _clean_text(response.get("case_domain"))
     metadata = _as_dict(response.get("metadata"))
     clarification_context = _as_dict(metadata.get("clarification_context"))
+    conversation_memory = build_conversation_memory(response)
     known_facts = _collect_known_facts(response)
     completeness = evaluate_case_completeness(known_facts, case_domain)
 
@@ -608,6 +610,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         case_domain=case_domain,
     )
     selected_question = _select_primary_question(response, critical_missing, ordinary_missing, question_candidates)
+    question_slot_key = _infer_question_slot_key(selected_question, question_candidates)
 
     precision_prompt = _clean_text(clarification_context.get("precision_prompt"))
     precision_required = bool(clarification_context.get("precision_required")) and bool(precision_prompt)
@@ -623,7 +626,16 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
             selected_question,
             completeness=completeness,
         )
-        guided_response = _build_guided_response(selected_question, response) if should_ask_first else None
+        guided_response = (
+            _build_guided_response(
+                selected_question,
+                response,
+                slot_key=question_slot_key,
+                conversation_memory=conversation_memory,
+            )
+            if should_ask_first
+            else None
+        )
         if memory_phrase and guided_response:
             guided_response = f"{memory_phrase} {guided_response}".strip()
     if not should_ask_first and _should_close_clarification(
@@ -672,6 +684,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
             ]
         ),
         "case_completeness": completeness,
+        "conversation_memory": conversation_memory,
     }
 
 
@@ -878,6 +891,29 @@ def _select_primary_question(
 
     # Source 1/2 = missing fact → convert to question
     return _fact_to_question(original)
+
+
+def _infer_question_slot_key(
+    selected_question: str | None,
+    question_candidates: list[dict[str, str]],
+) -> str:
+    question_text = _clean_text(selected_question)
+    if not question_text:
+        return ""
+
+    normalized_selected = _normalize_text(question_text)
+    for candidate in question_candidates:
+        candidate_question = _clean_text(candidate.get("question"))
+        if _normalize_text(candidate_question) != normalized_selected:
+            continue
+        inferred = _infer_priority_field(
+            text=candidate_question,
+            category=_clean_text(candidate.get("category")),
+        )
+        if inferred:
+            return inferred
+
+    return _infer_priority_field(text=question_text, category="")
 
 
 def _should_ask_first(
@@ -1097,6 +1133,12 @@ def _filter_question_candidates(
         question = _clean_text(candidate.get("question"))
         if not question:
             continue
+        inferred_field = _infer_priority_field(
+            text=question,
+            category=_clean_text(candidate.get("category")),
+        )
+        if inferred_field and _has_meaningful_fact(known_facts, inferred_field):
+            continue
         if _item_is_resolved(question, known_facts=known_facts, case_domain=case_domain):
             continue
         result.append(candidate)
@@ -1197,6 +1239,17 @@ def _build_guided_response(
     question_candidates = _extract_question_candidates(response)
     selected_candidate = question_candidates[0] if question_candidates else {}
     purpose = _clean_text(selected_candidate.get("purpose"))
+    inferred_slot = slot_key or _infer_question_slot_key(question, question_candidates)
+    styled = apply_conversational_style(
+        question,
+        conversation_memory,
+        slot_key=inferred_slot,
+        include_opening=True,
+    )
+    reason = _purpose_to_reason(purpose, response)
+    if reason:
+        return f"{styled} Esto es importante porque {reason}."
+    return styled
 
     # --- Conversational Quality Layer (Fase 5.5) ---
     # When we have slot_key / conversation_memory, use the new quality layer

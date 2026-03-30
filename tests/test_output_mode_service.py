@@ -335,7 +335,8 @@ def test_user_mode_switches_to_question_first_when_decisive_data_is_missing():
     result = output_mode_service.build_dual_output(payload)
 
     assert result["conversational"]["should_ask_first"] is True
-    assert result["output_modes"]["user"]["summary"].startswith("Para orientarte bien, primero necesito saber")
+    assert "necesito confirmar" in result["output_modes"]["user"]["summary"].lower()
+    assert "necesito un dato clave" not in result["output_modes"]["user"]["summary"].lower()
     assert "cambia la estrategia y la presentacion inicial" in result["output_modes"]["user"]["summary"]
     assert result["output_modes"]["user"]["quick_start"] == ""
     assert len(result["output_modes"]["user"]["next_steps"]) == 1
@@ -927,6 +928,70 @@ def test_guided_response_no_duplica_necesito_saber():
     guided = result["conversational"]["guided_response"] or ""
 
     assert "necesito saber necesito saber" not in guided.lower()
+
+
+def test_divorcio_guided_response_usa_capa_conversacional_y_no_copy_legacy():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme"
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Definir si el divorcio es conjunto o unilateral.",
+    ]
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "¿El otro conyuge esta de acuerdo con divorciarse o la peticion debera tramitarse unilateralmente?",
+                "purpose": "Definir la variante procesal del divorcio y evitar un encuadre incompleto.",
+                "priority": "alta",
+                "category": "variante_divorcio",
+            }
+        ],
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    guided = (result["conversational"]["guided_response"] or "").lower()
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert "para orientarte bien, primero necesito saber" not in guided
+    assert "necesito un dato clave" not in guided
+    assert "de comun acuerdo o unilateral" in guided
+
+
+def test_divorcio_no_repite_pregunta_de_hijos_si_ya_estan_definidos():
+    payload = _refined_response()
+    payload["query"] = "Quiero divorciarme. Tenemos hijos."
+    payload["facts"] = {"hay_hijos": True}
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "known_facts": {"hay_hijos": True},
+        }
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Confirmar si existen hijos menores en comun.",
+        "Definir si el divorcio es conjunto o unilateral.",
+    ]
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "¿Hay hijos menores o con capacidad restringida?",
+                "purpose": "Identificar si el divorcio involucra efectos parentales que deben ordenarse desde el inicio.",
+                "priority": "alta",
+                "category": "hijos",
+            },
+            {
+                "question": "¿El divorcio va a ser de comun acuerdo o unilateral?",
+                "purpose": "Definir la variante procesal del divorcio y evitar un encuadre incompleto.",
+                "priority": "alta",
+                "category": "variante_divorcio",
+            },
+        ],
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    question = (result["conversational"]["question"] or "").lower()
+
+    assert "hijos" not in question
+    assert "unilateral" in question or "comun acuerdo" in question
 
 
 def test_critical_missing_no_sale_prematuramente_de_clarification_mode():

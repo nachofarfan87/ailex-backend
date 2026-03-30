@@ -9,55 +9,40 @@ from app.services.conversational.conversational_quality import (
 )
 
 
-# ---------------------------------------------------------------------------
-# 1. Opening variation tests
-# ---------------------------------------------------------------------------
-
 def test_first_turn_opening_is_introductory():
     memory = {"conversation_turns": 0}
     opening = build_contextual_opening(memory, question_key="aportes_actuales")
-    # Must be from the first-turn pool — none of those contain "ya sé" or "ya tenemos"
     assert "ya tenemos" not in opening.lower()
-    assert "ya sé" not in opening.lower()
+    assert "ya se" not in opening.lower()
     assert opening.endswith(".")
 
 
 def test_continuation_turn_opening_differs_from_first():
     first = build_contextual_opening({"conversation_turns": 0}, question_key="convivencia")
     cont = build_contextual_opening({"conversation_turns": 2}, question_key="convivencia")
-    # Different pools → almost certainly different text
-    # (both are deterministic so this is stable)
     assert first != cont
 
 
 def test_late_turn_opening_has_closing_tone():
     opening = build_contextual_opening({"conversation_turns": 5}, question_key="urgencia")
-    # Late-turn openings mention progress / completion
-    late_markers = ("bastante claro", "cerca", "casi", "solo me falta", "un dato más", "último")
-    assert any(m in opening.lower() for m in late_markers)
+    late_markers = ("bastante claro", "cerca", "casi", "solo me falta", "un dato mas", "ultimo")
+    assert any(marker in opening.lower() for marker in late_markers)
 
 
 def test_no_consecutive_repeat_for_different_keys():
-    """Different question keys on the same turn should produce different openings."""
     memory = {"conversation_turns": 1}
     o1 = build_contextual_opening(memory, question_key="aportes_actuales")
     o2 = build_contextual_opening(memory, question_key="convivencia")
-    # With 6 options and deterministic hash, different keys should (almost always) differ.
-    # If they happen to collide, the anti-repeat logic should still work on consecutive calls.
-    # We test the broader contract: at least 2 of 3 calls produce distinct openings.
     o3 = build_contextual_opening(memory, question_key="notificacion")
-    unique = len({o1, o2, o3})
-    assert unique >= 2
+    assert len({o1, o2, o3}) >= 2
 
 
 def test_anti_repeat_uses_last_opening_idx():
-    """When _last_opening_idx matches the computed index, the opening shifts."""
-    # Force collision by setting _last_opening_idx to the expected index.
     memory = {"conversation_turns": 0}
     opening_a = build_contextual_opening(memory, question_key="aportes_actuales")
 
-    # Now simulate the memory recording that index
-    from app.services.conversational.conversational_quality import _pick_index, _FIRST_TURN_OPENINGS
+    from app.services.conversational.conversational_quality import _FIRST_TURN_OPENINGS, _pick_index
+
     idx = _pick_index(_FIRST_TURN_OPENINGS, "aportes_actuales", 0)
     memory["_last_opening_idx"] = idx
 
@@ -66,7 +51,6 @@ def test_anti_repeat_uses_last_opening_idx():
 
 
 def test_opening_is_deterministic():
-    """Same inputs always produce the same output (when _last_opening_idx is reset)."""
     memory_a = {"conversation_turns": 2}
     memory_b = {"conversation_turns": 2}
     a = build_contextual_opening(memory_a, question_key="ingresos")
@@ -74,23 +58,19 @@ def test_opening_is_deterministic():
     assert a == b
 
 
-# ---------------------------------------------------------------------------
-# 2. Question simplification tests
-# ---------------------------------------------------------------------------
-
 def test_simplify_known_slots():
     assert "plata" in simplify_question_text("ignored", "aportes_actuales").lower()
     assert "vive con vos" in simplify_question_text("ignored", "convivencia").lower()
     assert "ubicar" in simplify_question_text("ignored", "notificacion").lower()
-    assert "trabaja" in simplify_question_text("ignored", "ingresos").lower() or \
-           "ingreso" in simplify_question_text("ignored", "ingresos").lower()
+    assert "trabaja" in simplify_question_text("ignored", "ingresos").lower() or "ingreso" in simplify_question_text("ignored", "ingresos").lower()
     assert "urgente" in simplify_question_text("ignored", "urgencia").lower()
-    assert "reclamo" in simplify_question_text("ignored", "antecedentes").lower() or \
-           "acuerdo" in simplify_question_text("ignored", "antecedentes").lower()
+    assert "reclamo" in simplify_question_text("ignored", "antecedentes").lower() or "acuerdo" in simplify_question_text("ignored", "antecedentes").lower()
+    assert "unilateral" in simplify_question_text("ignored", "divorcio_modalidad").lower()
+    assert "hijos" in simplify_question_text("ignored", "hay_hijos").lower()
 
 
 def test_simplify_unknown_slot_returns_original():
-    original = "¿Cuál es el estado civil del demandante?"
+    original = "¿Cual es el estado civil del demandante?"
     assert simplify_question_text(original, "unknown_slot") == original
 
 
@@ -101,43 +81,35 @@ def test_simplify_no_slot_returns_original():
 
 
 def test_simplified_questions_are_shorter():
-    """Simplified versions should be more concise than the formal ones."""
-    formal = "¿Sabés si el otro progenitor tiene ingresos o una actividad laboral identificable?"
+    formal = "¿Sabes si el otro progenitor tiene ingresos o una actividad laboral identificable?"
     simple = simplify_question_text(formal, "ingresos")
     assert len(simple) < len(formal)
 
 
-# ---------------------------------------------------------------------------
-# 3. Full style wrapper tests
-# ---------------------------------------------------------------------------
-
 def test_apply_style_includes_opening_and_question():
     result = apply_conversational_style(
-        "¿El otro progenitor está aportando algo actualmente?",
+        "¿El otro progenitor esta aportando algo actualmente?",
         {"conversation_turns": 0},
         slot_key="aportes_actuales",
     )
-    # Should contain the simplified question
     assert "plata" in result.lower()
-    # Should contain an opening phrase (ends with a period before the question)
     assert "¿" in result
-    assert result.count("¿") == 1  # only the question, not duplicated
+    assert result.count("¿") == 1
 
 
 def test_apply_style_without_opening():
     result = apply_conversational_style(
-        "¿El otro progenitor está aportando algo actualmente?",
+        "¿El otro progenitor esta aportando algo actualmente?",
         {"conversation_turns": 0},
         slot_key="aportes_actuales",
         include_opening=False,
     )
-    # Should be just the simplified question, no opening
     assert result == simplify_question_text("ignored", "aportes_actuales")
 
 
 def test_apply_style_no_memory_still_works():
     result = apply_conversational_style(
-        "¿Ya hubo algún reclamo?",
+        "¿Ya hubo algun reclamo?",
         None,
         slot_key="antecedentes",
     )
@@ -145,12 +117,7 @@ def test_apply_style_no_memory_still_works():
     assert len(result) > 10
 
 
-# ---------------------------------------------------------------------------
-# 4. Persistence of _last_opening_idx
-# ---------------------------------------------------------------------------
-
 def test_build_contextual_opening_persists_idx_in_memory():
-    """After calling build_contextual_opening, _last_opening_idx must be set."""
     memory = {"conversation_turns": 0}
     assert "_last_opening_idx" not in memory
     build_contextual_opening(memory, question_key="convivencia")
@@ -159,23 +126,16 @@ def test_build_contextual_opening_persists_idx_in_memory():
 
 
 def test_persisted_idx_prevents_repeat_on_same_key_next_turn():
-    """Simulate two consecutive turns with the same key — openings must differ."""
-    # Turn 1: first call
     memory = {"conversation_turns": 2}
     opening_turn1 = build_contextual_opening(memory, question_key="ingresos")
     assert "_last_opening_idx" in memory
 
-    # Turn 2: bump turn counter, keep same _last_opening_idx (simulates persistence)
     memory["conversation_turns"] = 3
     opening_turn2 = build_contextual_opening(memory, question_key="ingresos")
-
-    # The anti-repeat logic should produce a different opening
-    # (same key, same pool since turns 2-3 are both continuation)
     assert opening_turn1 != opening_turn2
 
 
 def test_persisted_idx_survives_merge_conversation_memory():
-    """_last_opening_idx must survive merge_conversation_memory across turns."""
     from app.services.conversational.memory_service import merge_conversation_memory
 
     previous = {"conversation_turns": 1, "_last_opening_idx": 3}
@@ -185,7 +145,6 @@ def test_persisted_idx_survives_merge_conversation_memory():
 
 
 def test_merge_conversation_memory_incoming_overrides_previous_idx():
-    """When incoming has a _last_opening_idx, it should win over previous."""
     from app.services.conversational.memory_service import merge_conversation_memory
 
     previous = {"_last_opening_idx": 1}
@@ -195,36 +154,25 @@ def test_merge_conversation_memory_incoming_overrides_previous_idx():
 
 
 def test_full_multi_turn_anti_repetition():
-    """Simulate 4 turns and verify no two consecutive openings are identical."""
     memory = {"conversation_turns": 0}
     openings: list[str] = []
 
     keys = ["aportes_actuales", "convivencia", "ingresos", "notificacion"]
     for turn, key in enumerate(keys):
         memory["conversation_turns"] = turn
-        opening = build_contextual_opening(memory, question_key=key)
-        openings.append(opening)
+        openings.append(build_contextual_opening(memory, question_key=key))
 
-    # No two consecutive openings should be identical
-    for i in range(1, len(openings)):
-        assert openings[i] != openings[i - 1], (
-            f"Turn {i} repeated opening: {openings[i]!r}"
-        )
+    for index in range(1, len(openings)):
+        assert openings[index] != openings[index - 1]
 
 
 def test_none_memory_does_not_crash_and_does_not_persist():
-    """Passing None as memory should work without errors or side effects."""
     opening = build_contextual_opening(None, question_key="urgencia")
     assert isinstance(opening, str)
     assert len(opening) > 0
 
 
-# ---------------------------------------------------------------------------
-# 5. Integration contract: structure not broken
-# ---------------------------------------------------------------------------
-
 def test_existing_response_structure_preserved():
-    """The quality layer returns plain strings — no dict, no side effects."""
     opening = build_contextual_opening({"conversation_turns": 1}, "convivencia")
     assert isinstance(opening, str)
 
