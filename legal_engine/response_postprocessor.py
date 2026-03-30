@@ -125,9 +125,10 @@ class ResponsePostprocessor:
         short_answer = str(reasoning.get("short_answer") or "").strip()
         applied_analysis = str(reasoning.get("applied_analysis") or "").strip()
         strategy = payload.get("case_strategy") or {}
+        reactive_transition = str(strategy.get("reactive_transition") or "").strip()
         strategic_narrative = str(strategy.get("strategic_narrative") or "").strip()
 
-        parts = [part for part in (short_answer, applied_analysis, strategic_narrative) if part]
+        parts = [part for part in (reactive_transition, short_answer, applied_analysis, strategic_narrative) if part]
         return "\n\n".join(self._dedupe_lines(parts))
 
     def _prepend_quick_start(self, response_text: str, quick_start: str | None) -> str:

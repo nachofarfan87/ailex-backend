@@ -567,6 +567,7 @@ class AilexPipeline:
             reasoning_result=reasoning,
             legal_decision=legal_decision,
             procedural_case_state=procedural_case_state,
+            metadata=request.metadata,
         ))
         self._record_observability_stage(observability_context, "pipeline_case_strategy_ms", case_strategy_started_at)
         strategy_mode_override = str(pipeline_config.get("strategy_mode") or "").strip()

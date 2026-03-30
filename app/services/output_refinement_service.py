@@ -103,6 +103,7 @@ _HIGH_RISK_WARNING_PATTERNS = (
 
 def refine(response: dict[str, Any]) -> dict[str, Any]:
     refined = deepcopy(response or {})
+    refined = _apply_strategy_reactivity_summary(refined)
     refined = _apply_divorce_agreement_enrichment(refined)
     refined = dedupe_output_blocks(refined)
 
@@ -130,6 +131,32 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
             refined["quick_start"] = quick_start
 
     refined = rebalance_missing_info_and_confidence(refined)
+    return refined
+
+
+def _apply_strategy_reactivity_summary(response: dict[str, Any]) -> dict[str, Any]:
+    refined = deepcopy(response or {})
+    case_strategy = _as_dict(refined.get("case_strategy"))
+    reactivity = _as_dict(case_strategy.get("strategy_reactivity"))
+    if not bool(reactivity.get("stale")):
+        return refined
+
+    reactive_summary = str(case_strategy.get("reactive_summary") or "").strip()
+    reactive_transition = str(case_strategy.get("reactive_transition") or "").strip()
+    if not reactive_summary and not reactive_transition:
+        return refined
+
+    reasoning = _as_dict(refined.get("reasoning"))
+    current_short_answer = str(reasoning.get("short_answer") or "").strip()
+    reasoning["short_answer"] = _join_sentences(
+        reactive_transition,
+        reactive_summary,
+        current_short_answer if _normalize_text(current_short_answer) not in {
+            _normalize_text(reactive_transition),
+            _normalize_text(reactive_summary),
+        } else "",
+    )
+    refined["reasoning"] = reasoning
     return refined
 
 
@@ -561,3 +588,13 @@ def _safe_float(value: Any) -> float | None:
         return round(float(value), 4)
     except (TypeError, ValueError):
         return None
+
+
+def _join_sentences(*parts: str) -> str:
+    cleaned_parts: list[str] = []
+    for part in parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        cleaned_parts.append(text)
+    return " ".join(_dedupe_texts(cleaned_parts)).strip()

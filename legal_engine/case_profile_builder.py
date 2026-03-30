@@ -313,6 +313,7 @@ def build_case_profile(
 
     # Inject multi-domain fields
     profile["case_domains"] = domains
+    profile["input_facts"] = dict(facts or {})
 
     # Add cross-domain strategic focus when multiple domains are present
     if len(domains) > 1:
@@ -847,6 +848,7 @@ def _empty_profile() -> dict[str, Any]:
         "vulnerability": False,
         "needs_proof_strengthening": False,
         "strategic_focus": [],
+        "input_facts": {},
     }
 
 

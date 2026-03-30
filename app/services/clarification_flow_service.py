@@ -46,6 +46,15 @@ _CHILD_AGE_PATTERNS = (
 )
 _PERCENTAGE_PATTERN = re.compile(r"\b(\d{1,3})\s*%")
 _DAYS_PER_WEEK_PATTERN = re.compile(r"\b(\d{1,2})\s*dias?\b")
+_STRUCTURAL_FACT_KEYS = (
+    "hay_hijos",
+    "divorcio_modalidad",
+    "hay_acuerdo",
+    "convenio_regulador",
+    "cuota_alimentaria_porcentaje",
+    "regimen_comunicacional",
+    "jurisdiccion_relevante",
+)
 
 
 @dataclass
@@ -80,6 +89,7 @@ def prepare_legal_query_turn(
         {},
         clarification_context.get("known_facts") if isinstance(clarification_context.get("known_facts"), dict) else {},
     )
+    previous_structural_facts = _structural_fact_view(known_facts)
     known_facts = _merge_dicts(known_facts, normalized_facts)
 
     extraction = _extract_clarification_answer(
@@ -89,6 +99,8 @@ def prepare_legal_query_turn(
         known_facts=known_facts,
     )
     merged_facts = _merge_dicts(known_facts, extraction["facts"])
+    current_structural_facts = _structural_fact_view(merged_facts)
+    structural_fact_changes = _diff_structural_facts(previous_structural_facts, current_structural_facts)
     asked_questions = _dedupe_strings([
         *_as_str_list(clarification_context.get("asked_questions")),
         last_question,
@@ -109,6 +121,15 @@ def prepare_legal_query_turn(
         "answer_status": extraction["answer_status"],
         "precision_required": extraction["precision_required"],
         "precision_prompt": extraction["precision_prompt"],
+        "previous_structural_facts": previous_structural_facts,
+        "current_structural_facts": current_structural_facts,
+        "structural_fact_changes": structural_fact_changes,
+        "strategy_stale": bool(structural_fact_changes),
+        "strategy_recalculation_reason": (
+            f"Cambiaron facts estructurales: {', '.join(structural_fact_changes)}."
+            if structural_fact_changes else
+            "No cambiaron facts estructurales relevantes."
+        ),
     }
     normalized_metadata["clarification_context"] = updated_context
 
@@ -411,6 +432,26 @@ def _merge_dicts(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, An
             continue
         result[key] = value
     return result
+
+
+def _structural_fact_view(facts: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(facts, dict):
+        return {}
+    return {
+        key: value
+        for key, value in facts.items()
+        if key in _STRUCTURAL_FACT_KEYS and value not in (None, "", [], {})
+    }
+
+
+def _diff_structural_facts(previous: dict[str, Any], current: dict[str, Any]) -> list[str]:
+    changed: list[str] = []
+    for key in _STRUCTURAL_FACT_KEYS:
+        if previous.get(key) != current.get(key):
+            if previous.get(key) in (None, "", [], {}) and current.get(key) in (None, "", [], {}):
+                continue
+            changed.append(key)
+    return changed
 
 
 def _clean_text(value: Any) -> str:

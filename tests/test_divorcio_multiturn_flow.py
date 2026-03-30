@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.services import output_mode_service
 from app.services import output_refinement_service
 from app.services.clarification_flow_service import prepare_legal_query_turn
+from app.services.strategy_reactivity_service import apply_strategy_reactivity
 from legal_engine.case_profile_builder import build_case_profile
 
 
@@ -58,6 +59,7 @@ def _build_frontend_like_clarification_context(
     )
 
     return {
+        **previous_context,
         "base_query": base_query,
         "case_domain": str(previous_response.get("case_domain") or previous_context.get("case_domain") or "").strip(),
         "last_question": question if should_ask_first else str(previous_context.get("last_question") or "").strip(),
@@ -191,6 +193,13 @@ def _case_strategy_for_turn(facts: dict) -> dict:
 
 def _build_pipeline_payload(original_query: str, prepared, profile: dict) -> dict:
     facts = dict(prepared.merged_facts or {})
+    case_strategy = apply_strategy_reactivity(
+        _case_strategy_for_turn(facts),
+        case_domain=profile["case_domain"],
+        facts=facts,
+        metadata=prepared.metadata,
+        query=prepared.effective_query,
+    )
     return {
         "query": prepared.effective_query,
         "case_domain": profile["case_domain"],
@@ -209,7 +218,7 @@ def _build_pipeline_payload(original_query: str, prepared, profile: dict) -> dic
         },
         "procedural_case_state": {"blocking_factor": "none"},
         "question_engine_result": _question_engine_for_turn(facts),
-        "case_strategy": _case_strategy_for_turn(facts),
+        "case_strategy": case_strategy,
         "procedural_strategy": {
             "next_steps": [
                 "Preparar presentacion inicial de divorcio con encuadre y competencia correctos.",
@@ -382,3 +391,136 @@ def test_divorcio_multiturn_flow_evolves_when_convenio_terms_are_added():
     assert any("porcentaje" in risk.lower() or "base de calculo" in risk.lower() for risk in user_output["key_risks"])
     assert any("homolog" in focus.lower() for focus in professional_output["procedural_focus"])
     assert "homologacion" in professional_summary or "precision" in professional_summary
+
+
+def test_divorcio_multiturn_flow_reacts_when_hijos_are_defined():
+    _, _, turn_1 = _run_turn(query="Quiero divorciarme")
+    context_for_turn_2 = _build_frontend_like_clarification_context(
+        turn_1["response"],
+        turn_1["request_context"],
+    )
+
+    _, _, turn_2 = _run_turn(
+        query="Tengo una hija",
+        metadata={"clarification_context": context_for_turn_2},
+    )
+
+    reactivity = turn_2["response"]["case_strategy"]["strategy_reactivity"]
+    user_summary = (turn_2["response"]["output_modes"]["user"]["summary"] or "").lower()
+    risks = [item.lower() for item in turn_2["response"]["output_modes"]["user"]["key_risks"]]
+    professional_summary = (turn_2["response"]["output_modes"]["professional"]["summary"] or "").lower()
+
+    assert reactivity["stale"] is True
+    assert "hay_hijos" in reactivity["changed_fields"]
+    assert turn_2["request_context"]["metadata"]["clarification_context"]["strategy_stale"] is True
+    assert "hijos" in user_summary
+    assert "ahora el caso ya no es un divorcio sin definiciones parentales" in professional_summary
+    assert any("hijos" in item or "efectos parentales" in item for item in risks)
+
+
+def test_divorcio_multiturn_flow_reacts_when_modalidad_becomes_unilateral():
+    _, _, turn_1 = _run_turn(query="Quiero divorciarme")
+    context_for_turn_2 = _build_frontend_like_clarification_context(
+        turn_1["response"],
+        turn_1["request_context"],
+    )
+    _, _, turn_2 = _run_turn(
+        query="Tengo una hija",
+        metadata={"clarification_context": context_for_turn_2},
+    )
+    context_for_turn_3 = _build_frontend_like_clarification_context(
+        turn_2["response"],
+        turn_2["request_context"],
+    )
+
+    _, _, turn_3 = _run_turn(
+        query="Sera un divorcio unilateral",
+        facts=context_for_turn_3["known_facts"],
+        metadata={"clarification_context": context_for_turn_3},
+    )
+
+    reactivity = turn_3["response"]["case_strategy"]["strategy_reactivity"]
+    professional_summary = (turn_3["response"]["output_modes"]["professional"]["summary"] or "").lower()
+    user_summary = (turn_3["response"]["output_modes"]["user"]["summary"] or "").lower()
+    next_steps = [item.lower() for item in turn_3["response"]["output_modes"]["user"]["next_steps"]]
+    risks = [item.lower() for item in turn_3["response"]["output_modes"]["user"]["key_risks"]]
+
+    assert reactivity["stale"] is True
+    assert "divorcio_modalidad" in reactivity["changed_fields"]
+    assert "hay_acuerdo" in reactivity["changed_fields"]
+    assert "unilateral" in professional_summary
+    assert "via unilateral" in user_summary or "presentacion propia" in user_summary
+    assert any("unilateral" in item for item in next_steps)
+    assert any("acuerdo" in item or "unilateral" in item for item in risks)
+
+
+def test_divorcio_multiturn_flow_shows_clear_contrast_between_states():
+    _, _, turn_1 = _run_turn(query="Quiero divorciarme")
+    summary_1 = (turn_1["response"]["output_modes"]["professional"]["summary"] or "").lower()
+
+    context_for_turn_2 = _build_frontend_like_clarification_context(
+        turn_1["response"],
+        turn_1["request_context"],
+    )
+    _, _, turn_2 = _run_turn(
+        query="Tengo una hija",
+        metadata={"clarification_context": context_for_turn_2},
+    )
+    summary_2 = (turn_2["response"]["output_modes"]["professional"]["summary"] or "").lower()
+
+    context_for_turn_3 = _build_frontend_like_clarification_context(
+        turn_2["response"],
+        turn_2["request_context"],
+    )
+    _, _, turn_3 = _run_turn(
+        query="Sera un divorcio unilateral",
+        facts=context_for_turn_3["known_facts"],
+        metadata={"clarification_context": context_for_turn_3},
+    )
+    summary_3 = (turn_3["response"]["output_modes"]["professional"]["summary"] or "").lower()
+
+    assert summary_1 != summary_2
+    assert summary_2 != summary_3
+    assert "hijos en juego" not in summary_1
+    assert "hijos en juego" in summary_2
+    assert "via unilateral" not in summary_2
+    assert "via unilateral" in summary_3 or "presentacion propia" in summary_3
+
+
+def test_divorcio_multiturn_flow_does_not_recalculate_when_no_structural_facts_change():
+    _, _, turn_1 = _run_turn(query="Quiero divorciarme")
+    context_for_turn_2 = _build_frontend_like_clarification_context(
+        turn_1["response"],
+        turn_1["request_context"],
+    )
+    _, _, turn_2 = _run_turn(
+        query="Tengo una hija",
+        metadata={"clarification_context": context_for_turn_2},
+    )
+    context_for_turn_3 = _build_frontend_like_clarification_context(
+        turn_2["response"],
+        turn_2["request_context"],
+    )
+    _, _, turn_3 = _run_turn(
+        query="Sera un divorcio unilateral",
+        facts=context_for_turn_3["known_facts"],
+        metadata={"clarification_context": context_for_turn_3},
+    )
+    context_for_turn_4 = _build_frontend_like_clarification_context(
+        turn_3["response"],
+        turn_3["request_context"],
+    )
+
+    _, _, turn_4 = _run_turn(
+        query="Quiero saber como sigue el tramite",
+        facts=context_for_turn_4["known_facts"],
+        metadata={"clarification_context": context_for_turn_4},
+    )
+
+    reactivity = turn_4["response"]["case_strategy"]["strategy_reactivity"]
+    clarification_context = turn_4["request_context"]["metadata"]["clarification_context"]
+
+    assert reactivity["stale"] is False
+    assert reactivity["changed_fields"] == []
+    assert clarification_context["strategy_stale"] is False
+    assert clarification_context["structural_fact_changes"] == []

@@ -3,6 +3,8 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+from app.services.strategy_reactivity_service import apply_strategy_reactivity
+
 
 def build_case_strategy(
     query: str,
@@ -15,6 +17,7 @@ def build_case_strategy(
     reasoning_result,
     legal_decision: dict | None = None,
     procedural_case_state: dict | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict:
     legal_decision = dict(legal_decision or {})
     procedural_case_state = dict(procedural_case_state or {})
@@ -95,6 +98,13 @@ def build_case_strategy(
         "secondary_domain_notes": _build_secondary_domain_notes(case_profile),
     }
     _apply_sensitive_strategy_validations(strategy, query, case_profile)
+    strategy = apply_strategy_reactivity(
+        strategy,
+        case_domain=str(case_profile.get("case_domain") or "").strip(),
+        facts=dict(case_profile.get("input_facts") or {}),
+        metadata=metadata or {},
+        query=query,
+    )
     return strategy
 
 

@@ -229,6 +229,64 @@ def test_divorce_agreement_enrichment_is_noop_without_relevant_facts():
     assert not any("base de calculo" in item for item in actions)
 
 
+def test_strategy_reactivity_makes_state_change_visible_for_hijos_and_unilateral():
+    payload = _base_response()
+    payload["reasoning"] = {
+        "short_answer": "La consulta permite orientar una estrategia base de divorcio."
+    }
+    payload["case_strategy"]["strategy_reactivity"] = {
+        "stale": True,
+        "changed_fields": ["hay_hijos", "divorcio_modalidad", "hay_acuerdo"],
+    }
+    payload["case_strategy"]["reactive_transition"] = (
+        "Ahora el caso ya no es un divorcio sin definiciones parentales: hay hijos en juego. "
+        "El escenario tambien cambio porque ya no se trata de un acuerdo conjunto sino de una via unilateral."
+    )
+    payload["case_strategy"]["reactive_summary"] = (
+        "Con hijos ya definidos, la estrategia deja de ser un divorcio basico y pasa a exigir una propuesta concreta "
+        "sobre alimentos, cuidado y comunicacion. Al quedar definido que el divorcio es unilateral, cambian los pasos: "
+        "corresponde preparar la presentacion propia y no hablar del caso como si fuera un acuerdo cerrado."
+    )
+
+    response = output_refinement_service.refine(payload)
+    summary = response["reasoning"]["short_answer"].lower()
+
+    assert "ahora el caso ya no es un divorcio sin definiciones parentales" in summary
+    assert "via unilateral" in summary
+    assert "presentacion propia" in summary
+    assert "estrategia base de divorcio" in summary
+    assert summary.count("divorcio") >= 2
+
+
+def test_strategy_reactivity_changes_text_significantly_between_states():
+    base = _base_response()
+    base["reasoning"] = {"short_answer": "La consulta permite orientar una estrategia base de divorcio."}
+
+    changed = _base_response()
+    changed["reasoning"] = {"short_answer": "La consulta permite orientar una estrategia base de divorcio."}
+    changed["case_strategy"]["strategy_reactivity"] = {
+        "stale": True,
+        "changed_fields": ["hay_hijos"],
+    }
+    changed["case_strategy"]["reactive_transition"] = (
+        "Ahora el caso ya no es un divorcio sin definiciones parentales: hay hijos en juego."
+    )
+    changed["case_strategy"]["reactive_summary"] = (
+        "Con hijos ya definidos, la estrategia deja de ser un divorcio basico y pasa a exigir una propuesta concreta "
+        "sobre alimentos, cuidado y comunicacion."
+    )
+
+    base_response = output_refinement_service.refine(base)
+    changed_response = output_refinement_service.refine(changed)
+    base_summary = base_response["reasoning"]["short_answer"].lower()
+    changed_summary = changed_response["reasoning"]["short_answer"].lower()
+
+    assert base_summary != changed_summary
+    assert "hijos en juego" not in base_summary
+    assert "hijos en juego" in changed_summary
+    assert changed_summary.startswith("ahora el caso")
+
+
 # ---------------------------------------------------------------------------
 # Quick-start integration into response_text (via ResponsePostprocessor)
 # ---------------------------------------------------------------------------
@@ -395,3 +453,30 @@ def test_response_text_prioritizes_single_guiding_question_when_ask_first_is_act
         "Para orientarte bien, primero necesito saber si el divorcio sera de comun acuerdo "
         "o unilateral, porque eso cambia la estrategia y la presentacion inicial."
     )
+
+
+def test_response_text_includes_strategic_transition_when_state_changes():
+    result = _postprocess({
+        "query": "Quiero divorciarme",
+        "pipeline_version": "v1",
+        "reasoning": {
+            "short_answer": (
+                "Ahora el caso ya no es un divorcio sin definiciones parentales: hay hijos en juego. "
+                "Con hijos ya definidos, la estrategia deja de ser un divorcio basico y pasa a exigir una propuesta concreta "
+                "sobre alimentos, cuidado y comunicacion."
+            ),
+            "applied_analysis": "Analisis aplicado.",
+        },
+        "case_strategy": {
+            "reactive_transition": "El escenario tambien cambio porque ya no se trata de un acuerdo conjunto sino de una via unilateral.",
+            "strategic_narrative": (
+                "Cambio estrategico visible: la modalidad unilateral recalcula la estrategia. "
+                "El foco ya no es cerrar una presentacion conjunta sino sostener una propuesta reguladora propia."
+            ),
+        },
+    })
+
+    text = result.response_text.lower()
+    assert "hijos en juego" in text
+    assert "via unilateral" in text
+    assert "cambio estrategico visible" in text
