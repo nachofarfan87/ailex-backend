@@ -105,6 +105,8 @@ class LegalQueryResponse(BaseModel):
     conversation_state: dict[str, Any] = Field(default_factory=dict)
     dialogue_policy: dict[str, Any] = Field(default_factory=dict)
     conversational_intelligence: dict[str, Any] = Field(default_factory=dict)
+    intent_resolution: dict[str, Any] = Field(default_factory=dict)
+    execution_output: dict[str, Any] = Field(default_factory=dict)
     generated_document: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     confidence: Optional[float] = None

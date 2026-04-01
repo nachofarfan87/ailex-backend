@@ -13,6 +13,8 @@ from app.services.conversational_intelligence_service import (
     resolve_conversational_intelligence,
 )
 from app.services.dialogue_policy_service import resolve_dialogue_policy
+from app.services.execution_output_service import build_execution_output
+from app.services.intent_resolution_service import resolve_intent_resolution
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
 
@@ -83,6 +85,13 @@ class ResponsePostprocessor:
         # 8.2D — Composition layer
         # Recompone la presentación de la respuesta para mayor continuidad narrativa.
         # Si falla, response_text queda intacto.
+        response_text = self._attach_intent_resolution_and_execution_output(
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+            response_text=response_text,
+        )
+        api_payload["response_text"] = response_text
         response_text = self._apply_conversation_composer(
             api_payload=api_payload,
             response_text=response_text,
@@ -290,6 +299,61 @@ class ResponsePostprocessor:
             )
         except Exception:
             logger.exception("No se pudo resolver conversational intelligence (8.4).")
+
+    def _attach_intent_resolution_and_execution_output(
+        self,
+        *,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+        response_text: str,
+    ) -> str:
+        conversation_state = api_payload.get("conversation_state")
+        dialogue_policy = api_payload.get("dialogue_policy")
+        conversational_intelligence = api_payload.get("conversational_intelligence")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return response_text
+        if not isinstance(dialogue_policy, dict) or not dialogue_policy:
+            return response_text
+        if not isinstance(conversational_intelligence, dict) or not conversational_intelligence:
+            return response_text
+
+        try:
+            intent_resolution = resolve_intent_resolution(
+                normalized_input=normalized_input,
+                conversation_state=conversation_state,
+                dialogue_policy=dialogue_policy,
+                conversational_intelligence=conversational_intelligence,
+                pipeline_payload=pipeline_payload,
+            )
+            api_payload["intent_resolution"] = intent_resolution
+        except Exception:
+            logger.exception("No se pudo resolver intent resolution (8.5).")
+            return response_text
+
+        try:
+            execution_output = build_execution_output(
+                conversation_state=conversation_state,
+                dialogue_policy=api_payload.get("dialogue_policy"),
+                conversational_intelligence=conversational_intelligence,
+                pipeline_payload=pipeline_payload,
+                response_text=response_text,
+                intent_resolution=intent_resolution,
+            )
+            api_payload["execution_output"] = execution_output
+            policy_patch = execution_output.get("policy_patch") or {}
+            if isinstance(policy_patch, dict) and policy_patch:
+                api_payload["dialogue_policy"] = {
+                    **dict(api_payload.get("dialogue_policy") or {}),
+                    **policy_patch,
+                }
+            rendered = str(execution_output.get("rendered_response_text") or "").strip()
+            if execution_output.get("applies") and rendered:
+                return rendered
+        except Exception:
+            logger.exception("No se pudo construir execution output (8.5).")
+
+        return response_text
 
     def _extract_conversation_id(
         self,

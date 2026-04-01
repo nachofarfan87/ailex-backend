@@ -30,6 +30,7 @@ def _payload(
     conversation_id: str = "conv-post",
     should_ask_first: bool = True,
     query: str = "Quiero reclamar alimentos por mi hija",
+    practical: bool = False,
 ) -> tuple[dict, dict]:
     normalized_input = {
         "query": query,
@@ -60,6 +61,43 @@ def _payload(
             "question": "El otro progenitor esta aportando algo actualmente?" if should_ask_first else "",
         },
     }
+    if practical:
+        pipeline_payload["quick_start"] = "Primer paso recomendado: Preparar presentacion inicial de divorcio con encuadre y competencia correctos."
+        pipeline_payload["classification"] = {"action_slug": "divorcio_unilateral", "case_domain": "divorcio"}
+        pipeline_payload["case_profile"] = {
+            "case_domain": "divorcio",
+            "missing_critical_facts": ["domicilio_relevante"],
+        }
+        pipeline_payload["case_strategy"] = {
+            "strategy_mode": "conservadora",
+            "recommended_actions": [
+                "Preparar presentacion inicial de divorcio con encuadre y competencia correctos.",
+                "Redactar propuesta reguladora con los efectos necesarios del divorcio.",
+                "Pedir cuota provisoria en el mismo inicio si corresponde.",
+            ],
+            "procedural_focus": ["Verificar competencia y ultimo domicilio conyugal."],
+            "ordinary_missing_information": ["Completar propuesta reguladora y documentacion basica."],
+        }
+        pipeline_payload["procedural_strategy"] = {
+            "next_steps": [
+                "Reunir prueba documental basica.",
+                "Definir juzgado competente segun domicilios relevantes.",
+            ],
+            "missing_information": ["Documentacion basica y comprobantes relevantes."],
+        }
+        pipeline_payload["output_modes"] = {
+            "user": {
+                "next_steps": [
+                    "Definir la via procesal aplicable.",
+                    "Reunir prueba documental basica.",
+                ],
+                "missing_information": [
+                    "Completar acuerdo o propuesta reguladora.",
+                    "Reunir documentacion basica.",
+                ],
+            },
+        }
+        pipeline_payload["conversational"]["question"] = "¿El divorcio seria de comun acuerdo o unilateral?"
     return normalized_input, pipeline_payload
 
 
@@ -99,6 +137,39 @@ def test_pipeline_adjunta_conversational_intelligence_y_policy_modulada(db_sessi
     assert conversational_intelligence["recommended_adjustment"] == "keep_policy"
     assert conversational_intelligence["conversational_pressure_score"] == 0
     assert isinstance(conversational_intelligence["signals"], dict)
+    assert final_output.api_payload["intent_resolution"]["intent_type"] == "general_information"
+    assert final_output.api_payload["execution_output"]["applies"] is False
+
+
+def test_pipeline_adjunta_intent_resolution_y_execution_output_practico(db_session):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-practical",
+        should_ask_first=True,
+        query="Que tengo que hacer mañana para empezar mi divorcio?",
+        practical=True,
+    )
+
+    final_output = processor.postprocess(
+        request_id="req-practical",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert "intent_resolution" in final_output.api_payload
+    assert final_output.api_payload["intent_resolution"]["intent_type"] == "action_now"
+    assert "execution_output" in final_output.api_payload
+    assert final_output.api_payload["execution_output"]["applies"] is True
+    assert final_output.response_text.startswith("Que podes hacer hoy o manana para empezar tu divorcio:")
+    assert "Para afinar el paso siguiente" in final_output.response_text
 
 
 def test_inteligencia_reduce_questions_no_rompe_respuesta(db_session):
@@ -218,3 +289,73 @@ def test_no_rompe_respuesta_si_conversational_intelligence_falla(db_session, mon
     assert "conversation_state" in final_output.api_payload
     assert "dialogue_policy" in final_output.api_payload
     assert "conversational_intelligence" not in final_output.api_payload
+    assert "intent_resolution" not in final_output.api_payload
+    assert "execution_output" not in final_output.api_payload
+
+
+def test_no_rompe_respuesta_si_intent_resolution_falla(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-intent-fail",
+        should_ask_first=True,
+        query="Que tengo que hacer mañana para empezar mi divorcio?",
+        practical=True,
+    )
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_intent_resolution", _raise)
+
+    final_output = processor.postprocess(
+        request_id="req-intent-fail",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert "conversation_state" in final_output.api_payload
+    assert "dialogue_policy" in final_output.api_payload
+    assert "intent_resolution" not in final_output.api_payload
+    assert "execution_output" not in final_output.api_payload
+
+
+def test_no_rompe_respuesta_si_execution_output_falla(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-execution-fail",
+        should_ask_first=True,
+        query="Que tengo que hacer mañana para empezar mi divorcio?",
+        practical=True,
+    )
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(response_postprocessor_module, "build_execution_output", _raise)
+
+    final_output = processor.postprocess(
+        request_id="req-execution-fail",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert "conversation_state" in final_output.api_payload
+    assert "dialogue_policy" in final_output.api_payload
+    assert "intent_resolution" in final_output.api_payload
+    assert "execution_output" not in final_output.api_payload
