@@ -4,6 +4,7 @@ import re
 from difflib import SequenceMatcher
 from typing import Any
 
+from app.services import conversation_observability_service
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
 
@@ -51,6 +52,16 @@ class ResponsePostprocessor:
             retrieval=retrieval,
             strategy=strategy,
         )
+        try:
+            conversational = pipeline_payload.get("conversational") or {}
+            conversation_memory = conversational.get("conversation_memory") or {}
+            conversation_observability_service.record_observation(
+                turn_input=normalized_input,
+                response=api_payload,
+                memory=conversation_memory if isinstance(conversation_memory, dict) else None,
+            )
+        except Exception:
+            pass
 
         return FinalOutput(
             request_id=request_id,

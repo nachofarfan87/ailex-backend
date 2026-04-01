@@ -65,7 +65,7 @@ def test_reduce_acciones_a_top_5():
     response = output_refinement_service.refine(_base_response())
     actions = response["case_strategy"]["recommended_actions"]
 
-    assert len(actions) == 5
+    assert len(actions) == 4
     assert actions[0] == "Definir la via procesal mas conveniente."
 
 
@@ -276,6 +276,61 @@ def test_refinement_removes_variant_missing_when_modalidad_is_already_defined():
 
     assert "variante procesal" not in ordinary_missing
     assert "variante procesal" not in unresolved
+
+
+def test_refinement_limits_actions_semantically_and_syncs_procedural_next_steps():
+    payload = _base_response()
+    payload["case_strategy"]["recommended_actions"] = [
+        "Preparar presentacion inicial de divorcio con encuadre y que juzgado corresponde correctos.",
+        "Redactar acuerdo o propuesta sobre vivienda, bienes, hijos y alimentos unilateral con todos los efectos del divorcio.",
+        "Redactar el convenio con precision suficiente para homologacion, incluyendo base de calculo de la cuota y modalidad concreta de comunicacion.",
+        "Redactar clausula alimentaria con base de calculo, descuentos y gastos extraordinarios.",
+        "Reordenar la estrategia del divorcio para incluir propuesta concreta sobre alimentos, cuidado personal y comunicacion.",
+        "Confirmar si el divorcio se promovera de modo conjunto o unilateral.",
+    ]
+    payload["procedural_strategy"] = {
+        "next_steps": list(payload["case_strategy"]["recommended_actions"]),
+    }
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+    }
+
+    response = output_refinement_service.refine(payload)
+    actions = response["case_strategy"]["recommended_actions"]
+    procedural_next_steps = response["procedural_strategy"]["next_steps"]
+    lowered_actions = " || ".join(item.lower() for item in actions)
+
+    assert len(actions) <= 4
+    assert len(procedural_next_steps) <= 4
+    assert actions == procedural_next_steps
+    assert lowered_actions.count("redactar") <= 2
+    assert "confirmar si el divorcio se promovera" not in lowered_actions
+
+
+def test_refinement_filters_actions_inconsistent_with_resolved_facts():
+    payload = _base_response()
+    payload["case_strategy"]["recommended_actions"] = [
+        "Confirmar si el divorcio se promovera de modo conjunto o unilateral.",
+        "Definir alimentos de los hijos antes del escrito inicial.",
+        "Confirmar regimen de comunicacion antes de cerrar el convenio.",
+        "Preparar presentacion unilateral con acuerdo o propuesta sobre vivienda, bienes, hijos y alimentos propia y hechos suficientes para sostenerla.",
+    ]
+    payload["facts"] = {
+        "divorcio_modalidad": "unilateral",
+        "hay_acuerdo": False,
+        "alimentos_definidos": True,
+        "cuota_alimentaria_porcentaje": "20%",
+        "regimen_comunicacional": True,
+        "regimen_comunicacional_frecuencia": "3 veces por semana",
+    }
+
+    response = output_refinement_service.refine(payload)
+    actions = response["case_strategy"]["recommended_actions"]
+
+    assert actions == [
+        "Preparar presentacion unilateral con acuerdo o propuesta sobre vivienda, bienes, hijos y alimentos propia y hechos suficientes para sostenerla.",
+    ]
 
 
 def test_strategy_reactivity_makes_state_change_visible_for_hijos_and_unilateral():

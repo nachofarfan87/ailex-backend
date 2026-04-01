@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import get_current_user
 from app.db.database import get_db
 from app.db.user_models import User
-from app.services import learning_insights_service, learning_observability_service
+from app.services import learning_insights_service, learning_observability_service, live_alert_service
 
 
 router = APIRouter(
@@ -196,6 +196,72 @@ class InsightResponse(BaseModel):
     insight_key: str = ""
     metrics: dict = Field(default_factory=dict)
     explanation: InsightExplanationResponse | None = None
+
+
+class LiveAlertWindowResponse(BaseModel):
+    mode: str
+    last_hours: int | None = None
+    event_limit: int | None = None
+    recent_event_count: int | None = None
+
+
+class LiveAlertResponse(BaseModel):
+    alert_id: str
+    category: str
+    severity: str
+    title: str
+    description: str
+    detected_at: str
+    window: LiveAlertWindowResponse
+    metric: dict = Field(default_factory=dict)
+    threshold: dict = Field(default_factory=dict)
+    related_family: str | None = None
+    related_signature: str | None = None
+    event_type: str | None = None
+    output_mode: str | None = None
+    recommended_action: str
+    should_surface_to_ui: bool = True
+    dedupe_key: str
+    evidence: dict = Field(default_factory=dict)
+    baseline_context: dict = Field(default_factory=dict)
+    drift: dict = Field(default_factory=dict)
+    priority_score: float | None = None
+    priority_level: str | None = None
+    priority_reason: str = ""
+    priority_factors: dict = Field(default_factory=dict)
+    source: str
+
+
+class LiveAlertSummaryResponse(BaseModel):
+    total_alerts: int
+    surfaced_alerts: int
+    by_severity: dict = Field(default_factory=dict)
+    by_category: dict = Field(default_factory=dict)
+    by_priority_level: dict = Field(default_factory=dict)
+    active_categories: list[str] = Field(default_factory=list)
+    top_prioritized_alert_ids: list[str] = Field(default_factory=list)
+    active_drift_count: int = 0
+
+
+class LiveAlertSourcesResponse(BaseModel):
+    conversation_log_path: str
+    recent_turn_count: int
+    recent_action_count: int
+    recent_family_metric_count: int
+    recent_signature_metric_count: int
+
+
+class LiveAlertSnapshotResponse(BaseModel):
+    generated_at: str
+    source: str
+    window: LiveAlertWindowResponse
+    has_data: bool
+    summary: LiveAlertSummaryResponse
+    alerts: list[LiveAlertResponse] = Field(default_factory=list)
+    baseline_summary: dict = Field(default_factory=dict)
+    drift_summary: dict = Field(default_factory=dict)
+    top_prioritized_alerts: list[LiveAlertResponse] = Field(default_factory=list)
+    sources: LiveAlertSourcesResponse
 
 
 # ---------------------------------------------------------------------------
@@ -387,3 +453,21 @@ def get_insights(
         date_to=_parse_datetime(date_to),
     )
     return [InsightResponse(**item) for item in items]
+
+
+@router.get("/live-alerts", response_model=LiveAlertSnapshotResponse)
+def get_live_alerts(
+    last_hours: int = Query(default=6, ge=1, le=72),
+    event_limit: int = Query(default=200, ge=20, le=1000),
+    baseline_days: int = Query(default=14, ge=3, le=90),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> LiveAlertSnapshotResponse:
+    return LiveAlertSnapshotResponse(
+        **live_alert_service.get_live_alert_snapshot(
+            db,
+            last_hours=last_hours,
+            event_limit=event_limit,
+            baseline_days=baseline_days,
+        )
+    )

@@ -9,7 +9,7 @@ from app.services.divorce_agreement_evaluation_service import build_divorce_agre
 
 
 _SIMILARITY_THRESHOLD = 0.9
-_MAX_ACTIONS = 5
+_MAX_ACTIONS = 4
 _REMOVED_PHRASES = (
     "no corresponde presentar",
     "no sobreactuar",
@@ -107,6 +107,7 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
     refined = _apply_divorce_agreement_enrichment(refined)
     refined = _remove_resolved_missing_information(refined)
     refined = dedupe_output_blocks(refined)
+    resolution_facts = _collect_resolution_facts(refined)
 
     case_domains = dedupe_domains(_as_str_list(refined.get("case_domains")))
     if case_domains:
@@ -123,6 +124,7 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
             _as_str_list(case_strategy.get("recommended_actions")),
             strategy_reactivity=_as_dict(case_strategy.get("strategy_reactivity")),
             case_domain=str(refined.get("case_domain") or ""),
+            facts=resolution_facts,
         )
         case_strategy["recommended_actions"] = actions
         case_strategy["risk_analysis"] = _dedupe_texts(_as_str_list(case_strategy.get("risk_analysis")))
@@ -135,9 +137,21 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
             actions,
             strategy_reactivity=_as_dict(case_strategy.get("strategy_reactivity")),
             case_domain=str(refined.get("case_domain") or ""),
+            facts=resolution_facts,
         )
         if quick_start:
             refined["quick_start"] = quick_start
+
+    procedural_strategy = _as_dict(refined.get("procedural_strategy"))
+    if procedural_strategy:
+        procedural_actions = prioritize_actions(
+            _as_str_list(procedural_strategy.get("next_steps")) or _as_str_list(case_strategy.get("recommended_actions")),
+            strategy_reactivity=_as_dict(case_strategy.get("strategy_reactivity")),
+            case_domain=str(refined.get("case_domain") or ""),
+            facts=resolution_facts,
+        )
+        procedural_strategy["next_steps"] = procedural_actions
+        refined["procedural_strategy"] = procedural_strategy
 
     refined = rebalance_missing_info_and_confidence(refined)
     return refined
@@ -296,6 +310,7 @@ def prioritize_actions(
     *,
     strategy_reactivity: dict[str, Any] | None = None,
     case_domain: str = "",
+    facts: dict[str, Any] | None = None,
 ) -> list[str]:
     ranked = []
     changed_fields = {
@@ -303,8 +318,11 @@ def prioritize_actions(
         for item in (_as_dict(strategy_reactivity).get("changed_fields") or [])
         if str(item).strip()
     }
-    for index, action in enumerate(_dedupe_texts(_compress_redundant_actions(actions, case_domain=case_domain))):
+    known_facts = _as_dict(facts)
+    for index, action in enumerate(_dedupe_texts(actions)):
         normalized = _normalize_text(action)
+        if _action_conflicts_with_facts(normalized, known_facts):
+            continue
         priority = 0
         if any(token in normalized for token in _CRITICAL_ACTION_PATTERNS):
             priority = 30
@@ -314,9 +332,19 @@ def prioritize_actions(
             priority = 10
         if changed_fields:
             priority += _reactivity_action_bonus(normalized, changed_fields)
-        ranked.append((priority, index, action))
+        ranked.append((priority, index, action, _action_semantic_key(action, case_domain=case_domain)))
     ranked.sort(key=lambda item: (-item[0], item[1]))
-    return [item[2] for item in ranked[:_MAX_ACTIONS]]
+    result: list[str] = []
+    seen_groups: set[str] = set()
+    for _, _, action, semantic_group in ranked:
+        if semantic_group and semantic_group in seen_groups:
+            continue
+        if semantic_group:
+            seen_groups.add(semantic_group)
+        result.append(action)
+        if len(result) >= _MAX_ACTIONS:
+            break
+    return result
 
 
 def simplify_strategy_text(text: str) -> str:
@@ -346,6 +374,7 @@ def extract_quick_start(
     *,
     strategy_reactivity: dict[str, Any] | None = None,
     case_domain: str = "",
+    facts: dict[str, Any] | None = None,
 ) -> str:
     reactive_pick = _pick_reactive_quick_start_action(
         actions,
@@ -358,6 +387,7 @@ def extract_quick_start(
         actions,
         strategy_reactivity=strategy_reactivity,
         case_domain=case_domain,
+        facts=facts,
     )
     if not prioritized:
         return ""
@@ -681,20 +711,69 @@ def _reactivity_action_bonus(normalized_action: str, changed_fields: set[str]) -
 
 def _compress_redundant_actions(actions: list[str], *, case_domain: str) -> list[str]:
     compressed: list[str] = []
-    seen_drafting_groups: set[str] = set()
+    seen_groups: set[str] = set()
     for action in actions:
         text = str(action or "").strip()
         normalized = _normalize_text(text)
         if not normalized:
             continue
-        if case_domain.casefold() == "divorcio" and "redact" in normalized:
-            if any(token in normalized for token in ("convenio", "acuerdo", "clausula", "cuota", "comunicacion")):
-                group = "divorce_agreement_drafting"
-                if group in seen_drafting_groups:
-                    continue
-                seen_drafting_groups.add(group)
+        group = _action_semantic_key(text, case_domain=case_domain)
+        if group and group in seen_groups:
+            continue
+        if group:
+            seen_groups.add(group)
         compressed.append(text)
     return compressed
+
+
+def _action_semantic_key(action: str, *, case_domain: str) -> str:
+    normalized = _normalize_text(action)
+    if not normalized:
+        return ""
+
+    if case_domain.casefold() == "divorcio":
+        if any(token in normalized for token in ("convenio", "acuerdo", "propuesta reguladora", "clausula", "homolog")):
+            if any(token in normalized for token in ("redact", "ajust", "precis", "complet", "base de calculo", "comunicacion", "visitas", "cuota")):
+                return "divorce_agreement_drafting"
+        if any(token in normalized for token in ("presentacion inicial", "escrito inicial", "iniciar divorcio", "promover divorcio", "presentacion unilateral")):
+            return "divorce_initial_filing"
+        if any(token in normalized for token in ("via procesal", "modalidad", "unilateral", "conjunto", "hay acuerdo")):
+            return "divorce_mode_definition"
+        if any(token in normalized for token in ("alimentos", "cuidado", "comunicacion", "hijos")) and any(
+            token in normalized for token in ("reorden", "ajust", "aline", "incluir", "ordenar")
+        ):
+            return "divorce_parental_alignment"
+
+    if any(token in normalized for token in ("competencia", "juzgado", "domicilio relevante")):
+        return "competence_definition"
+    if any(token in normalized for token in ("prueba", "documental", "constancia", "acreditar")):
+        return "evidence_preparation"
+    return ""
+
+
+def _action_conflicts_with_facts(normalized_action: str, facts: dict[str, Any]) -> bool:
+    if not normalized_action or not facts:
+        return False
+
+    modalidad = _normalize_text(facts.get("divorcio_modalidad"))
+    if any(token in normalized_action for token in ("confirmar si el divorcio", "definir via", "definir la via", "modo conjunto", "modo unilateral")):
+        if modalidad in {"unilateral", "conjunto"}:
+            return True
+    if "confirmar si el divorcio se promovera" in normalized_action and modalidad in {"unilateral", "conjunto"}:
+        return True
+    if "hay acuerdo" in normalized_action and "hay_acuerdo" in facts:
+        return True
+    if any(token in normalized_action for token in ("si hay hijos", "existen hijos")) and "hay_hijos" in facts:
+        return True
+    if any(token in normalized_action for token in ("definir alimentos", "confirmar alimentos")) and (
+        facts.get("alimentos_definidos") is True or _normalize_text(facts.get("cuota_alimentaria_porcentaje"))
+    ):
+        return True
+    if any(token in normalized_action for token in ("definir regimen", "confirmar regimen", "confirmar comunicacion")) and (
+        facts.get("regimen_comunicacional") is True or _normalize_text(facts.get("regimen_comunicacional_frecuencia"))
+    ):
+        return True
+    return False
 
 
 def _pick_reactive_quick_start_action(
