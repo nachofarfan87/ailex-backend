@@ -527,6 +527,8 @@ class ConversationStateService:
             "last_user_message_at": last_user_message_at,
             "last_engine_update_at": now.isoformat(),
             "state_version": STATE_VERSION,
+            # 8.3: propagar conversation_memory del turno anterior
+            "conversation_memory": _as_dict(previous_state.get("conversation_memory")),
         }
         return self._normalize_snapshot(snapshot, conversation_id=conversation_id)
 
@@ -973,6 +975,36 @@ class ConversationStateService:
         record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
         record.last_user_message_at = _parse_iso_datetime(snapshot.get("last_user_message_at"))
         record.last_engine_update_at = _parse_iso_datetime(snapshot.get("last_engine_update_at"))
+        db.flush()
+
+    def update_conversation_memory(
+        self,
+        db: Session,
+        *,
+        conversation_id: str,
+        conversation_memory: dict[str, Any],
+    ) -> None:
+        """
+        Actualiza solo el campo conversation_memory del snapshot persistido.
+        Llamado después de que dialogue_policy y composer ya corrieron (Fase 8.3).
+        No modifica ningún otro campo del snapshot.
+        """
+        normalized_id = _clean_text(conversation_id)
+        if not normalized_id:
+            return
+        record = (
+            db.query(ConversationStateSnapshot)
+            .filter(ConversationStateSnapshot.conversation_id == normalized_id)
+            .one_or_none()
+        )
+        if record is None:
+            return
+        try:
+            snapshot = json.loads(record.snapshot_json)
+        except (json.JSONDecodeError, TypeError):
+            snapshot = {}
+        snapshot["conversation_memory"] = dict(conversation_memory or {})
+        record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
         db.flush()
 
 

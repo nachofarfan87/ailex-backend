@@ -52,10 +52,22 @@ def resolve_dialogue_policy(
     blocking_missing = bool(progress.get("blocking_missing"))
     case_completeness = _clean_text(progress.get("case_completeness")).lower() or "low"
 
+    # 8.3: usar asked_missing_keys_history de conversation_memory si está disponible
+    # (más confiable que la inferencia por texto de las preguntas)
+    conversation_memory = _as_dict(state.get("conversation_memory"))
+    memory_asked_keys = [
+        str(k).strip()
+        for k in (conversation_memory.get("asked_missing_keys_history") or [])
+        if str(k).strip()
+    ]
+
     asked_missing_keys = _infer_asked_missing_keys(
         asked_questions=asked_questions,
         missing_facts=missing_facts,
     )
+    if memory_asked_keys:
+        # Merge: los del historial de memoria son directamente registrados
+        asked_missing_keys = list(dict.fromkeys([*memory_asked_keys, *asked_missing_keys]))
     priority_missing = _rank_missing_facts(
         missing_facts=missing_facts,
         asked_questions=asked_questions,

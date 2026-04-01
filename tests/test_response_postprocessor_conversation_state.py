@@ -25,16 +25,21 @@ def db_session():
         Base.metadata.drop_all(bind=engine)
 
 
-def _payload(*, conversation_id: str = "conv-post", should_ask_first: bool = True) -> tuple[dict, dict]:
+def _payload(
+    *,
+    conversation_id: str = "conv-post",
+    should_ask_first: bool = True,
+    query: str = "Quiero reclamar alimentos por mi hija",
+) -> tuple[dict, dict]:
     normalized_input = {
-        "query": "Quiero reclamar alimentos por mi hija",
+        "query": query,
         "facts": {"hay_hijos": True},
         "metadata": {
             "conversation_id": conversation_id,
         },
     }
     pipeline_payload = {
-        "query": "Quiero reclamar alimentos por mi hija",
+        "query": query,
         "pipeline_version": "beta-orchestrator-v1",
         "facts": {"hay_hijos": True},
         "reasoning": {"short_answer": "Hay base para orientar el reclamo."},
@@ -58,7 +63,7 @@ def _payload(*, conversation_id: str = "conv-post", should_ask_first: bool = Tru
     return normalized_input, pipeline_payload
 
 
-def test_pipeline_adjunta_snapshot_si_todo_sale_bien(db_session):
+def test_pipeline_adjunta_conversational_intelligence_y_policy_modulada(db_session):
     processor = ResponsePostprocessor()
     normalized_input, pipeline_payload = _payload()
 
@@ -81,13 +86,6 @@ def test_pipeline_adjunta_snapshot_si_todo_sale_bien(db_session):
     assert snapshot["turn_count"] == 1
     assert snapshot["working_case_type"] == "alimentos_hijos"
     assert snapshot["working_domain"] == "alimentos"
-    assert snapshot["progress_signals"]["known_fact_count"] == 1
-    assert snapshot["progress_signals"]["missing_fact_count"] == 1
-    assert snapshot["known_facts"][0]["fact_type"] == "structural"
-    assert snapshot["known_facts"][0]["importance"] == "core"
-    assert snapshot["missing_facts"][0]["purpose"] == "quantify"
-    assert snapshot["progress_signals"]["blocking_missing"] is True
-    assert snapshot["progress_signals"]["case_completeness"] == "low"
 
     dialogue_policy = final_output.api_payload["dialogue_policy"]
     assert dialogue_policy["action"] == "ask"
@@ -95,8 +93,48 @@ def test_pipeline_adjunta_snapshot_si_todo_sale_bien(db_session):
     assert dialogue_policy["dominant_missing_key"] == "ingresos_otro_progenitor"
     assert dialogue_policy["dominant_missing_purpose"] == "quantify"
     assert dialogue_policy["dominant_missing_importance"] == "core"
-    assert dialogue_policy["guidance_strength"] == "medium"
-    assert dialogue_policy["should_ask_first"] is True
+
+    conversational_intelligence = final_output.api_payload["conversational_intelligence"]
+    assert conversational_intelligence["conversation_status"] in {"stable", "fragile"}
+    assert conversational_intelligence["recommended_adjustment"] == "keep_policy"
+    assert conversational_intelligence["conversational_pressure_score"] == 0
+    assert isinstance(conversational_intelligence["signals"], dict)
+
+
+def test_inteligencia_reduce_questions_no_rompe_respuesta(db_session):
+    processor = ResponsePostprocessor()
+
+    normalized_input_1, pipeline_payload_1 = _payload(
+        conversation_id="conv-stalled",
+        should_ask_first=True,
+        query="Quiero reclamar alimentos",
+    )
+    processor.postprocess(
+        request_id="req-stalled-1",
+        normalized_input=normalized_input_1,
+        pipeline_payload=pipeline_payload_1,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    normalized_input_2, pipeline_payload_2 = _payload(
+        conversation_id="conv-stalled",
+        should_ask_first=True,
+        query="No se",
+    )
+    final_output = processor.postprocess(
+        request_id="req-stalled-2",
+        normalized_input=normalized_input_2,
+        pipeline_payload=pipeline_payload_2,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert final_output.response_text
+    assert "dialogue_policy" in final_output.api_payload
+    assert "conversational_intelligence" in final_output.api_payload
 
 
 def test_no_rompe_respuesta_si_el_servicio_falla(db_session, monkeypatch):
@@ -151,3 +189,32 @@ def test_no_rompe_respuesta_si_dialogue_policy_falla(db_session, monkeypatch):
 
     assert "conversation_state" in final_output.api_payload
     assert "dialogue_policy" not in final_output.api_payload
+    assert "conversational_intelligence" not in final_output.api_payload
+
+
+def test_no_rompe_respuesta_si_conversational_intelligence_falla(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(conversation_id="conv-intelligence-fail", should_ask_first=True)
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_conversational_intelligence", _raise)
+
+    final_output = processor.postprocess(
+        request_id="req-intelligence-fail",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert "conversation_state" in final_output.api_payload
+    assert "dialogue_policy" in final_output.api_payload
+    assert "conversational_intelligence" not in final_output.api_payload

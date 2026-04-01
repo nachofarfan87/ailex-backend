@@ -8,6 +8,10 @@ from typing import Any
 
 from app.services import conversation_observability_service
 from app.services.conversation_state_service import conversation_state_service
+from app.services.conversational_intelligence_service import (
+    apply_conversational_intelligence_to_policy,
+    resolve_conversational_intelligence,
+)
 from app.services.dialogue_policy_service import resolve_dialogue_policy
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
@@ -70,6 +74,26 @@ class ResponsePostprocessor:
             pipeline_payload=pipeline_payload,
             api_payload=api_payload,
         )
+        self._attach_conversational_intelligence(
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+
+        # 8.2D — Composition layer
+        # Recompone la presentación de la respuesta para mayor continuidad narrativa.
+        # Si falla, response_text queda intacto.
+        response_text = self._apply_conversation_composer(
+            api_payload=api_payload,
+            response_text=response_text,
+        )
+        api_payload["response_text"] = response_text
+
+        # 8.3 — Persist conversation memory
+        # Registra en el snapshot lo que pasó en este turno (policy + composer).
+        # Si falla, no afecta la respuesta.
+        self._persist_conversation_memory(db=db, api_payload=api_payload)
+
         try:
             conversational = pipeline_payload.get("conversational") or {}
             conversation_memory = conversational.get("conversation_memory") or {}
@@ -101,6 +125,95 @@ class ResponsePostprocessor:
             warnings=list(api_payload.get("warnings") or []),
             api_payload=api_payload,
         )
+
+    # 8.2D — Conversation Composer
+
+    def _apply_conversation_composer(
+        self,
+        *,
+        api_payload: dict[str, Any],
+        response_text: str,
+    ) -> str:
+        """
+        Aplica la capa de composición conversacional (Fase 8.2D).
+
+        Requiere que conversation_state y dialogue_policy ya estén adjuntos.
+        Si faltan, o si el composer falla, devuelve response_text sin modificar.
+        El resultado de composición se adjunta a api_payload["composer_output"].
+        """
+        conversation_state = api_payload.get("conversation_state")
+        dialogue_policy = api_payload.get("dialogue_policy")
+
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return response_text
+        if not isinstance(dialogue_policy, dict) or not dialogue_policy:
+            return response_text
+
+        try:
+            from app.services.conversation_composer_service import compose
+
+            result = compose(
+                conversation_state=conversation_state,
+                dialogue_policy=dialogue_policy,
+                response_text=response_text,
+            )
+            if result:
+                api_payload["composer_output"] = result
+                composed = str(result.get("composed_response_text") or "").strip()
+                if composed:
+                    return composed
+        except Exception:
+            logger.exception("No se pudo aplicar conversation composer (8.2D).")
+
+        return response_text
+
+    # 8.3 — Conversation Memory
+
+    def _persist_conversation_memory(
+        self,
+        *,
+        db: Any | None,
+        api_payload: dict[str, Any],
+    ) -> None:
+        """
+        Actualiza conversation_memory en el snapshot con los resultados del turno.
+        Requiere que dialogue_policy y composer_output ya estén en api_payload.
+        Fallback seguro: si falla, no afecta la respuesta.
+        """
+        if db is None:
+            return
+        conversation_state = api_payload.get("conversation_state")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        dialogue_policy = api_payload.get("dialogue_policy") or {}
+        if not dialogue_policy:
+            return
+
+        conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+        if not conversation_id:
+            return
+
+        try:
+            from app.services.conversation_memory_service import build_memory_update
+
+            current_memory = dict(conversation_state.get("conversation_memory") or {})
+            composer_output = dict(api_payload.get("composer_output") or {})
+            updated_memory = build_memory_update(
+                current_memory=current_memory,
+                dialogue_policy=dialogue_policy,
+                composer_output=composer_output,
+                conversation_state=conversation_state,
+            )
+            api_payload["conversation_state"]["conversation_memory"] = updated_memory
+            conversation_state_service.update_conversation_memory(
+                db,
+                conversation_id=conversation_id,
+                conversation_memory=updated_memory,
+            )
+        except Exception:
+            logger.exception("No se pudo persistir conversation_memory (8.3).")
+
+    # Conversación y policy
 
     def _attach_conversation_state(
         self,
@@ -149,6 +262,35 @@ class ResponsePostprocessor:
         except Exception:
             logger.exception("No se pudo resolver dialogue policy.")
 
+    def _attach_conversational_intelligence(
+        self,
+        *,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        conversation_state = api_payload.get("conversation_state")
+        dialogue_policy = api_payload.get("dialogue_policy")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        if not isinstance(dialogue_policy, dict) or not dialogue_policy:
+            return
+        try:
+            intelligence = resolve_conversational_intelligence(
+                conversation_state=conversation_state,
+                dialogue_policy=dialogue_policy,
+                conversation_memory=conversation_state.get("conversation_memory"),
+                normalized_input=normalized_input,
+                pipeline_payload=pipeline_payload,
+            )
+            api_payload["conversational_intelligence"] = intelligence
+            api_payload["dialogue_policy"] = apply_conversational_intelligence_to_policy(
+                dialogue_policy=dialogue_policy,
+                conversational_intelligence=intelligence,
+            )
+        except Exception:
+            logger.exception("No se pudo resolver conversational intelligence (8.4).")
+
     def _extract_conversation_id(
         self,
         normalized_input: dict[str, Any],
@@ -166,6 +308,8 @@ class ResponsePostprocessor:
             if normalized:
                 return normalized
         return ""
+
+    # Construcción de payload
 
     def _build_api_payload(
         self,
@@ -231,22 +375,18 @@ class ResponsePostprocessor:
         if not qs:
             return response_text
 
-        # Normalize: strip any repeated prefix occurrences, then add exactly one
         qs_body = self._normalize_quick_start_prefix(qs)
         qs = f"{_QUICK_START_PREFIX} {qs_body}".strip()
-        # Ensure trailing period
         if qs and qs[-1] not in ".!?":
             qs += "."
 
         if not response_text.strip():
             return qs
 
-        # Already present: starts with the prefix
         first_line = response_text.split("\n")[0].strip()
         if first_line.lower().startswith(_QUICK_START_PREFIX.lower()):
             return response_text
 
-        # Semantic near-duplicate: first line is very similar to quick_start body
         norm_first = re.sub(r"\s+", " ", first_line.lower())
         norm_qs = re.sub(r"\s+", " ", qs_body.lower())
         if norm_qs and SequenceMatcher(a=norm_first, b=norm_qs).ratio() >= _QUICK_START_SIMILARITY_THRESHOLD:
@@ -293,6 +433,8 @@ class ResponsePostprocessor:
                 f"Bloqueo procesal detectado: {strategy.blocking_factor}.",
             )
         return self._sanitize_text(text)
+
+    # Utilidades
 
     def _sanitize_text(self, text: str) -> str:
         parts = [self._normalize_whitespace(part) for part in re.split(r"\n{2,}", str(text or "")) if str(part).strip()]

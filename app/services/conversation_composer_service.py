@@ -1,0 +1,527 @@
+# c:\Users\nacho\Documents\APPS\AILEX\backend\app\services\conversation_composer_service.py
+"""
+Fase 8.2D + 8.3 — Conversation Composer
+
+Capa de composición conversacional: reduce repetición entre turnos, genera
+continuidad narrativa y conecta las preguntas con el estado del caso.
+
+Fase 8.3 agrega:
+- Uso de conversation_memory para variar aperturas entre turnos
+- Corrección de over-trimming: guidance_strength=low conserva al menos 1
+  párrafo de contenido útil cuando la orientación base aún no fue dada
+- Trim más agresivo cuando orientacion_base ya fue explicada en turnos previos
+- Integración con conversation_memory_service (lazy import, sin dependencia dura)
+
+Diseño: funciones pequeñas y testeables. Sin NLP pesado. Sin estado interno.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# ─── Constantes ───────────────────────────────────────────────────────────────
+
+# Largo mínimo para considerar que un párrafo es "orientación genérica"
+_MIN_ORIENTATION_LEN = 80
+
+# Rango de longitud para considerar un párrafo como "útil y específico"
+# (no es orientación genérica, pero tampoco es trivial)
+_MIN_USEFUL_LEN = 30
+_MAX_USEFUL_LEN_FOR_LOW = 280  # fix over-trimming: párrafos más cortos → específicos
+
+# Cuántos párrafos de contenido conservar según guidance_strength
+_MAX_CONTENT_PARAS_MEDIUM = 2
+_MAX_CONTENT_PARAS_MEDIUM_EXPLAINED = 1  # más agresivo si orientación ya fue dada
+
+# Keywords que el LLM usa en bloques de orientación genérica repetitivos
+_ORIENTATION_KEYWORDS = (
+    "de acuerdo",
+    "en base a",
+    "a partir de",
+    "según la ley",
+    "en argentina",
+    "para reclamar",
+    "el proceso",
+    "el trámite",
+    "la normativa",
+    "el código",
+    "a continuación",
+    "a efectos de",
+)
+_ORIENTATION_MIN_HITS = 2
+
+# ─── Lead text: frases por defecto y alternativas ─────────────────────────────
+# Cada situación tiene (default, alternate). El alternate se usa cuando
+# conversation_memory indica que el mismo tipo de apertura ya se usó recientemente.
+
+_LEAD: dict[str, tuple[str, str]] = {
+    "clarification_rich": (
+        "Con lo que me contás ya tenemos una base. Necesito aclarar un punto más antes de orientarte.",
+        "Eso ayuda a construir el caso. Antes de avanzar, necesito confirmar algo más.",
+    ),
+    "clarification_some": (
+        "Para orientarte mejor, necesito aclarar algo importante primero.",
+        "Antes de seguir, necesito que me confirmes un dato clave.",
+    ),
+    "clarification_none": (
+        "Antes de seguir, necesito confirmar un dato clave.",
+        "Para orientarte con precisión, necesito un dato importante.",
+    ),
+    "guided_followup_medium": (
+        "Con lo que me explicaste ya hay contexto suficiente para orientarte, aunque todavía necesito precisar algún detalle.",
+        "Bien. Hay base para avanzar, aunque me falta confirmar un punto más.",
+    ),
+    "guided_followup_high": (
+        "Con lo que me dijiste ya tengo casi todo para orientarte bien.",
+        "Casi tenemos lo que hace falta. Vamos avanzando.",
+    ),
+    "guided_followup_low": (
+        "Con lo que me dijiste podemos seguir avanzando.",
+        "Bien. Con esto ya podemos avanzar un poco más.",
+    ),
+    "partial_closure": (
+        "Con todo lo que me explicaste ya tengo lo que necesito para orientarte.",
+        "Con esto ya tenemos lo que hace falta para avanzar bien.",
+    ),
+    "followup_high": (
+        "Con lo que me contás ya tenemos una base sólida para seguir.",
+        "Muy bien. Con lo que me explicaste ya hay base más que suficiente.",
+    ),
+    "followup_medium": (
+        "Con lo que me contás ya tenemos una base sólida para seguir.",
+        "Lo que me dijiste suma. Podemos avanzar con lo que hay.",
+    ),
+    "followup_low": (
+        "Con esto sumamos contexto importante. Sigamos avanzando.",
+        "Bien. Con lo que me contás hay base para avanzar.",
+    ),
+}
+
+
+# ─── Helpers de memory service (lazy imports para resiliencia) ────────────────
+
+
+def _should_vary_lead(memory: dict[str, Any] | None, lead_type: str) -> bool:
+    """Wrapper resiliente para conversation_memory_service.should_vary_lead."""
+    try:
+        from app.services.conversation_memory_service import should_vary_lead
+        return should_vary_lead(memory, lead_type)
+    except Exception:
+        return False
+
+
+def _was_orientation_explained(memory: dict[str, Any] | None) -> bool:
+    """¿Ya se explicó orientacion_base en turnos anteriores?"""
+    try:
+        from app.services.conversation_memory_service import was_topic_explained
+        return was_topic_explained(memory, "orientacion_base")
+    except Exception:
+        return False
+
+
+def _pick(key: str, vary: bool) -> str:
+    """Selecciona default o alternate según flag de variación."""
+    pair = _LEAD.get(key, ("", ""))
+    return pair[1] if vary else pair[0]
+
+
+# ─── Helpers de detección ─────────────────────────────────────────────────────
+
+
+def detect_turn_type(
+    conversation_state: dict[str, Any] | None,
+    dialogue_policy: dict[str, Any] | None,
+) -> str:
+    """
+    Detecta el tipo de turno conversacional.
+
+    Tipos posibles:
+    - initial          → primer turno; respuesta completa sin modificar
+    - clarification    → turno de aclaración pura (action=ask)
+    - guided_followup  → orientación + pregunta (action=hybrid)
+    - partial_closure  → orientación completa, falta poco (advise + completeness=high)
+    - followup         → seguimiento genérico (resto de casos)
+    """
+    state = conversation_state or {}
+    policy = dialogue_policy or {}
+
+    turn_count = int(state.get("turn_count") or 0)
+    action = str(policy.get("action") or "")
+    completeness = str(
+        (state.get("progress_signals") or {}).get("case_completeness") or "low"
+    )
+
+    if turn_count <= 1:
+        return "initial"
+    if action == "ask":
+        return "clarification"
+    if action == "hybrid":
+        return "guided_followup"
+    if action == "advise" and completeness == "high":
+        return "partial_closure"
+    return "followup"
+
+
+def resolve_lead_text(
+    turn_type: str,
+    conversation_state: dict[str, Any] | None,
+    dialogue_policy: dict[str, Any] | None,
+    conversation_memory: dict[str, Any] | None = None,
+) -> str:
+    """
+    Genera una apertura conversacional corta según el tipo de turno.
+    Para 'initial' devuelve cadena vacía.
+    Para los demás, una frase que retoma el caso.
+
+    Fase 8.3: usa conversation_memory para variar la frase si el mismo tipo
+    de apertura se usó recientemente (evitar repetición de framing).
+    """
+    if turn_type == "initial":
+        return ""
+
+    state = conversation_state or {}
+    del dialogue_policy  # no usado directamente; info ya extraída antes de esta función
+
+    progress = state.get("progress_signals") or {}
+    known_count = int(progress.get("known_fact_count") or 0)
+    completeness = str(progress.get("case_completeness") or "low")
+
+    vary = _should_vary_lead(conversation_memory, turn_type)
+
+    if turn_type == "clarification":
+        if known_count >= 3:
+            return _pick("clarification_rich", vary)
+        if known_count >= 1:
+            return _pick("clarification_some", vary)
+        return _pick("clarification_none", vary)
+
+    if turn_type == "guided_followup":
+        if completeness == "high":
+            return _pick("guided_followup_high", vary)
+        if completeness == "medium":
+            return _pick("guided_followup_medium", vary)
+        return _pick("guided_followup_low", vary)
+
+    if turn_type == "partial_closure":
+        return _pick("partial_closure", vary)
+
+    # followup genérico
+    if completeness == "high":
+        return _pick("followup_high", vary)
+    if completeness == "medium":
+        return _pick("followup_medium", vary)
+    return _pick("followup_low", vary)
+
+
+def _is_orientation_paragraph(paragraph: str) -> bool:
+    """
+    Heurística: ¿este párrafo es un bloque de 'orientación inicial' genérica?
+
+    Criterio: párrafo largo (>= _MIN_ORIENTATION_LEN chars) que contiene
+    al menos _ORIENTATION_MIN_HITS palabras clave de orientación genérica.
+    """
+    if len(paragraph) < _MIN_ORIENTATION_LEN:
+        return False
+    normalized = paragraph.lower()
+    hits = sum(1 for kw in _ORIENTATION_KEYWORDS if kw in normalized)
+    return hits >= _ORIENTATION_MIN_HITS
+
+
+def _is_useful_content_para(paragraph: str) -> bool:
+    """
+    ¿Es este párrafo útil y específico (no orientación genérica)?
+    Se usa para decidir si conservar al menos un párrafo en guidance_strength=low.
+    """
+    return (
+        _MIN_USEFUL_LEN <= len(paragraph) <= _MAX_USEFUL_LEN_FOR_LOW
+        and not _is_orientation_paragraph(paragraph)
+    )
+
+
+def estimate_repetition(
+    response_text: str,
+    turn_count: int,
+    already_explained_orientation: bool = False,
+) -> bool:
+    """
+    Estima si response_text contiene un bloque de orientación genérica repetitivo.
+
+    Fase 8.3: si already_explained_orientation=True, usa un umbral menor
+    (incluso párrafos más cortos se clasifican como repetición).
+    """
+    if turn_count <= 1:
+        return False
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", response_text) if p.strip()]
+    if not paragraphs:
+        return False
+
+    # Con orientación ya explicada: más agresivo
+    if already_explained_orientation and len(paragraphs[0]) > _MIN_ORIENTATION_LEN // 2:
+        return True
+
+    return _is_orientation_paragraph(paragraphs[0])
+
+
+def trim_body_for_strength(
+    body_text: str,
+    guidance_strength: str,
+    turn_type: str,
+    already_explained_orientation: bool = False,
+) -> str:
+    """
+    Recorta el body_text según guidance_strength para controlar la profundidad.
+
+    Reglas:
+    - initial / partial_closure: sin recorte
+    - high: sin recorte
+    - medium: máx _MAX_CONTENT_PARAS_MEDIUM párrafos + preguntas
+      (reducido a _MAX_CONTENT_PARAS_MEDIUM_EXPLAINED si orientación ya fue explicada)
+    - low: 1 párrafo útil (si orientación no fue explicada) + preguntas
+      Si orientación ya fue explicada: solo preguntas (trim agresivo)
+
+    Siempre preserva párrafos con '?' para no perder la pregunta.
+    """
+    if turn_type in ("initial", "partial_closure"):
+        return body_text
+    if guidance_strength == "high":
+        return body_text
+
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
+    if len(paragraphs) <= 1:
+        return body_text
+
+    question_paras = [p for p in paragraphs if "?" in p]
+    content_paras = [p for p in paragraphs if "?" not in p]
+
+    if guidance_strength == "low":
+        if question_paras:
+            if already_explained_orientation:
+                # Trim agresivo: solo preguntas
+                return "\n\n".join(question_paras)
+            # Fix over-trimming: conservar 1 párrafo útil si existe
+            useful = [p for p in content_paras if _is_useful_content_para(p)]
+            if useful:
+                return "\n\n".join([useful[0]] + question_paras)
+            return "\n\n".join(question_paras)
+        # Sin preguntas: no recortar (no perder contenido)
+        return body_text
+
+    # medium
+    max_content = (
+        _MAX_CONTENT_PARAS_MEDIUM_EXPLAINED
+        if already_explained_orientation
+        else _MAX_CONTENT_PARAS_MEDIUM
+    )
+    kept_content = content_paras[:max_content]
+    result_paras = kept_content + question_paras
+
+    if len(result_paras) >= len(paragraphs):
+        return body_text
+
+    return "\n\n".join(result_paras)
+
+
+def build_question_intro(
+    dialogue_policy: dict[str, Any] | None,
+    conversation_state: dict[str, Any] | None,
+) -> str:
+    """
+    Construye una frase introductoria para la pregunta dominante.
+    Conecta la pregunta con el estado del caso en vez de dejarla suelta.
+
+    Retorna cadena vacía si no aplica (no hay pregunta, turno inicial, etc.).
+    """
+    policy = dialogue_policy or {}
+    action = str(policy.get("action") or "")
+
+    if action not in ("ask", "hybrid"):
+        return ""
+
+    dominant_key = str(policy.get("dominant_missing_key") or "")
+    dominant_purpose = str(policy.get("dominant_missing_purpose") or "")
+
+    if not dominant_key:
+        return ""
+
+    progress = (conversation_state or {}).get("progress_signals") or {}
+    completeness = str(progress.get("case_completeness") or "low")
+
+    if dominant_purpose == "enable":
+        return "Para saber si podemos avanzar, necesito que me confirmes un dato clave:"
+    if dominant_purpose == "identify":
+        return "Para identificar correctamente la situación, necesito aclarar:"
+    if dominant_purpose == "quantify":
+        if completeness in ("medium", "high"):
+            return (
+                "Ya tenemos el contexto principal. "
+                "Para ajustar la orientación, necesito saber:"
+            )
+        return "Para poder orientarte sobre montos y valores, necesito saber:"
+    if dominant_purpose == "prove":
+        return "Para evaluar qué tan sólido está el caso en este punto, necesito entender:"
+    if dominant_purpose == "situational":
+        return "Para completar el panorama, me ayudaría saber:"
+
+    return "Para orientarte mejor en este punto, necesito aclarar algo:"
+
+
+# ─── Composición interna ──────────────────────────────────────────────────────
+
+
+def _strip_leading_orientation(response_text: str) -> tuple[str, bool]:
+    """
+    Si el primer párrafo es un bloque de orientación genérica, lo elimina.
+    Devuelve (texto_sin_orientacion, fue_recortado).
+    No modifica si el resultado quedaría vacío.
+    """
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", response_text) if p.strip()]
+    if not paragraphs or len(paragraphs) == 1:
+        return response_text, False
+
+    if _is_orientation_paragraph(paragraphs[0]):
+        rest = paragraphs[1:]
+        return "\n\n".join(rest).strip(), True
+
+    return response_text, False
+
+
+def _resolve_composition_strategy(
+    turn_type: str,
+    repetition_reduced: bool,
+    question_intro: str,
+    lead_text: str,
+) -> str:
+    """Nombre de la estrategia aplicada, para observabilidad."""
+    if turn_type == "initial":
+        return "passthrough_initial"
+    if repetition_reduced and question_intro:
+        return "dedup_with_question_bridge"
+    if repetition_reduced:
+        return "dedup_followup"
+    if question_intro and lead_text:
+        return "followup_with_question_bridge"
+    if lead_text:
+        return "lead_followup"
+    return "passthrough"
+
+
+# ─── API pública ──────────────────────────────────────────────────────────────
+
+
+def compose(
+    *,
+    conversation_state: dict[str, Any] | None,
+    dialogue_policy: dict[str, Any] | None,
+    response_text: str,
+    pipeline_payload: dict[str, Any] | None = None,  # reservado para extensiones
+) -> dict[str, Any]:
+    """
+    Compone la respuesta conversacional final.
+
+    Fase 8.3: extrae conversation_memory de conversation_state y la usa para:
+    - variar la apertura si el mismo tipo se usó recientemente
+    - decidir agresividad del trim según temas ya explicados
+    - reducir mejor la repetición de orientación base
+
+    Contrato de salida:
+    {
+        "turn_type":              str,
+        "lead_text":              str,
+        "body_text":              str,
+        "question_intro":         str,
+        "composed_response_text": str,
+        "repetition_reduced":     bool,
+        "composition_strategy":   str,
+    }
+
+    En caso de fallo retorna {} — el llamador (postprocessor) usa el texto base.
+    """
+    state = conversation_state or {}
+    policy = dialogue_policy or {}
+    turn_count = int(state.get("turn_count") or 0)
+
+    del pipeline_payload  # reservado; no usado en esta versión
+
+    # 8.3: extraer memoria conversacional del snapshot
+    conversation_memory = state.get("conversation_memory") or {}
+
+    # 8.3: determinar si orientación base ya fue explicada
+    already_explained_orientation = _was_orientation_explained(conversation_memory)
+
+    # 1. Tipo de turno
+    turn_type = detect_turn_type(state, policy)
+
+    # 2. Apertura conversacional (8.3: con variación por memoria)
+    lead_text = resolve_lead_text(turn_type, state, policy, conversation_memory)
+
+    # 3. Reducción de repetición (8.3: con umbral ajustado por memoria)
+    repetition_detected = estimate_repetition(
+        response_text, turn_count, already_explained_orientation
+    )
+    body_text = response_text
+    repetition_reduced = False
+
+    if repetition_detected and turn_type != "initial":
+        stripped, was_stripped = _strip_leading_orientation(response_text)
+        if was_stripped and stripped:
+            body_text = stripped
+            repetition_reduced = True
+
+    # 4. Modular profundidad por guidance_strength (8.3: con flag de orientación explicada)
+    guidance_strength = str(policy.get("guidance_strength") or "medium")
+    body_text = trim_body_for_strength(
+        body_text, guidance_strength, turn_type, already_explained_orientation
+    )
+
+    # 5. Intro para la pregunta
+    question_intro = build_question_intro(policy, state)
+
+    # 6. Ensamblar texto compuesto
+    parts: list[str] = []
+
+    if lead_text:
+        parts.append(lead_text)
+
+    action = str(policy.get("action") or "")
+    if question_intro and action in ("ask", "hybrid") and turn_type != "initial":
+        # Separar body en contenido y pregunta para insertar intro como puente
+        body_paras = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
+        question_paras = [p for p in body_paras if "?" in p]
+        content_paras = [p for p in body_paras if "?" not in p]
+
+        if content_paras and question_paras:
+            parts.extend(content_paras)
+            parts.append(question_intro)
+            parts.extend(question_paras)
+        elif question_paras and not content_paras:
+            # lead_text ya actúa como conector; no duplicar con question_intro
+            parts.extend(question_paras)
+        else:
+            if body_text.strip():
+                parts.append(body_text.strip())
+    else:
+        if body_text.strip():
+            parts.append(body_text.strip())
+
+    composed = "\n\n".join(p for p in parts if p.strip())
+
+    # Guardia: si la composición quedó vacía, usar el texto original
+    if not composed.strip():
+        composed = response_text
+
+    strategy = _resolve_composition_strategy(
+        turn_type, repetition_reduced, question_intro, lead_text
+    )
+
+    return {
+        "turn_type": turn_type,
+        "lead_text": lead_text,
+        "body_text": body_text,
+        "question_intro": question_intro,
+        "composed_response_text": composed,
+        "repetition_reduced": repetition_reduced,
+        "composition_strategy": strategy,
+    }
