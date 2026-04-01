@@ -99,6 +99,11 @@ def resolve_progression_policy(
         selected_output_mode=selected_output_mode,
         progress_focus=progress_focus,
     )
+    decision_required = selected_output_mode == "estrategia"
+    decision_focus = _resolve_decision_focus(
+        selected_output_mode=selected_output_mode,
+        progress_focus=progress_focus,
+    )
 
     return {
         "output_mode": selected_output_mode,
@@ -114,6 +119,8 @@ def resolve_progression_policy(
         "topics_covered": topics_covered,
         "suggested_next_steps": list(progress_focus.get("strategic_actions") or [])[:3],
         "missing_focus": list(progress_focus.get("missing_highlights") or [])[:3],
+        "decision_required": decision_required,
+        "decision_focus": decision_focus,
         "user_summary": user_summary,
         "professional_summary": professional_summary,
         "rendered_response_text": rendered_response_text,
@@ -437,6 +444,22 @@ def _resolve_incremental_value(
     if has_new_facts and not semantic_repetition.get("detected"):
         return "add_new_information"
     return "force_deeper_progress"
+
+
+def _resolve_decision_focus(
+    *,
+    selected_output_mode: str,
+    progress_focus: dict[str, Any],
+) -> str:
+    if selected_output_mode != "estrategia":
+        return ""
+    strategic_actions = _as_str_list(progress_focus.get("strategic_actions"))
+    if strategic_actions:
+        return strategic_actions[0]
+    missing_highlights = _as_str_list(progress_focus.get("missing_highlights"))
+    if missing_highlights:
+        return missing_highlights[0]
+    return "definir el camino practico mas conveniente"
 
 
 def _render_progressed_response(

@@ -350,11 +350,61 @@ def test_estrategia_compara_opciones_y_no_contiene_explicacion_basica(db_session
         db=db_session,
     )
 
-    assert "Con este escenario, tenes dos caminos posibles:" in final_output.response_text
-    assert "1." in final_output.response_text
-    assert "2." in final_output.response_text
-    assert "En la practica, lo mas conveniente suele ser" in final_output.response_text
+    assert "En este caso, lo mas conveniente es:" in final_output.response_text
+    assert "La accion prioritaria ahora es:" in final_output.response_text
+    assert "Otra opcion seria" in final_output.response_text
+    assert "porque" in final_output.response_text
     assert "es un derecho" not in final_output.response_text.lower()
+    assert "strategic_decision" in final_output.api_payload
+    assert final_output.api_payload["strategic_decision"]["recommended_path"]
+    assert final_output.api_payload["strategic_decision"]["priority_action"]
+
+
+def test_estrategia_siempre_prioriza_una_opcion_concreta(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-strategy-priority",
+        should_ask_first=False,
+        query="Quiero divorciarme y pedir alimentos para mi hija de 3 meses",
+        practical=True,
+    )
+    pipeline_payload["facts"] = {"hay_hijos": True, "hay_acuerdo": False}
+
+    def _progression(*args, **kwargs):
+        return {
+            "output_mode": "estrategia",
+            "progression_stage": "strategy",
+            "missing_focus": ["modalidad del divorcio"],
+            "decision_required": True,
+            "decision_focus": "definir el camino principal del caso",
+            "progression_state": {
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": [],
+                "topics_covered": ["divorcio", "alimentos"],
+                "last_output_mode": "estrategia",
+                "progression_stage": "strategy",
+                "recent_turns": [],
+                "last_intent_type": "general_information",
+                "current_turn": {"output_mode": "estrategia", "topics_covered": ["divorcio", "alimentos"]},
+            },
+            "rendered_response_text": "",
+        }
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _progression)
+
+    final_output = processor.postprocess(
+        request_id="req-strategy-priority",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert "En este caso, lo mas conveniente es:" in final_output.response_text
+    assert "divorcio unilateral" in final_output.response_text.lower()
+    assert "Otra opcion seria" in final_output.response_text
+    assert "manual" not in final_output.response_text.lower()
 
 
 def test_ejecucion_contiene_pasos_accionables_y_no_repite_orientacion_basica(db_session, monkeypatch):
@@ -586,3 +636,59 @@ def test_no_rompe_respuesta_si_progression_policy_falla(db_session, monkeypatch)
     assert "conversation_state" in final_output.api_payload
     assert "dialogue_policy" in final_output.api_payload
     assert "progression_policy" not in final_output.api_payload
+
+
+def test_no_rompe_respuesta_si_strategic_decision_falla(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-strategy-fail",
+        should_ask_first=False,
+        query="No me pasa alimentos",
+    )
+    pipeline_payload["case_strategy"]["recommended_actions"] = [
+        "Iniciar el reclamo principal con pedido de cuota provisoria.",
+        "Reunir primero mas prueba antes de presentar.",
+    ]
+
+    def _progression(*args, **kwargs):
+        return {
+            "output_mode": "estrategia",
+            "progression_stage": "strategy",
+            "missing_focus": ["ingresos del otro progenitor"],
+            "decision_required": True,
+            "decision_focus": "definir el camino principal del caso",
+            "progression_state": {
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": [],
+                "topics_covered": ["alimentos"],
+                "last_output_mode": "estrategia",
+                "progression_stage": "strategy",
+                "recent_turns": [],
+                "last_intent_type": "general_information",
+                "current_turn": {"output_mode": "estrategia", "topics_covered": ["alimentos"]},
+            },
+            "rendered_response_text": "",
+        }
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _progression)
+    monkeypatch.setattr(response_postprocessor_module, "resolve_strategic_decision", _raise)
+
+    final_output = processor.postprocess(
+        request_id="req-strategy-fail",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert final_output.response_text
+    assert "strategic_decision" not in final_output.api_payload

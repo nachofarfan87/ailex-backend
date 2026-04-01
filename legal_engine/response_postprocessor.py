@@ -24,6 +24,7 @@ from app.services.progression_policy import (
     finalize_progression_state,
     resolve_progression_policy,
 )
+from app.services.strategic_decision_service import resolve_strategic_decision
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
 
@@ -255,21 +256,25 @@ class ResponsePostprocessor:
         if output_mode == "orientacion_inicial":
             return response_text
 
-        if output_mode == "estructuracion":
-            return self._render_structuring_response(
-                pipeline_payload=pipeline_payload,
-                api_payload=api_payload,
-            )
-        if output_mode == "estrategia":
-            return self._render_strategy_response(
-                pipeline_payload=pipeline_payload,
-                api_payload=api_payload,
-            )
-        if output_mode == "ejecucion":
-            return self._render_execution_response(
-                pipeline_payload=pipeline_payload,
-                api_payload=api_payload,
-            )
+        try:
+            if output_mode == "estructuracion":
+                return self._render_structuring_response(
+                    pipeline_payload=pipeline_payload,
+                    api_payload=api_payload,
+                )
+            if output_mode == "estrategia":
+                return self._render_strategy_response(
+                    pipeline_payload=pipeline_payload,
+                    api_payload=api_payload,
+                )
+            if output_mode == "ejecucion":
+                return self._render_execution_response(
+                    pipeline_payload=pipeline_payload,
+                    api_payload=api_payload,
+                )
+        except Exception:
+            logger.exception("No se pudo transformar la respuesta segun output_mode.")
+            return response_text
         return response_text
 
     def _render_structuring_response(
@@ -313,32 +318,32 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         api_payload: dict[str, Any],
     ) -> str:
-        case_strategy = dict(pipeline_payload.get("case_strategy") or {})
+        conversation_state = dict(api_payload.get("conversation_state") or {})
+        progression_policy = dict(api_payload.get("progression_policy") or {})
         execution_output = dict(api_payload.get("execution_output") or {})
-        recommended_actions = self._dedupe_texts(
-            [
-                *list(case_strategy.get("recommended_actions") or []),
-                *list(case_strategy.get("procedural_focus") or []),
-                *list(dict(dict(pipeline_payload.get("output_modes") or {}).get("user") or {}).get("next_steps") or []),
-            ]
+        strategic_decision = resolve_strategic_decision(
+            conversation_state=conversation_state,
+            pipeline_payload=pipeline_payload,
+            progression_policy=progression_policy,
         )
-        risk_analysis = self._dedupe_texts(list(case_strategy.get("risk_analysis") or []))
-        chosen = str(pipeline_payload.get("quick_start") or "").strip() or (recommended_actions[0] if recommended_actions else "")
-        option_a = recommended_actions[0] if recommended_actions else "Ordenar primero el encuadre principal del caso."
-        option_b = recommended_actions[1] if len(recommended_actions) > 1 else "Ir directo al planteo principal con la informacion disponible."
-        consequence_a = risk_analysis[0] if risk_analysis else "reduce el riesgo de avanzar con un planteo incompleto"
-        consequence_b = risk_analysis[1] if len(risk_analysis) > 1 else "puede acelerar el inicio, pero deja menos margen para corregir faltantes despues"
+        api_payload["strategic_decision"] = strategic_decision
+
+        recommended_path = self._strip_known_quick_start(str(strategic_decision.get("recommended_path") or "").strip())
+        priority_action = self._strip_known_quick_start(str(strategic_decision.get("priority_action") or "").strip())
+        justification = str(strategic_decision.get("justification") or "").strip()
+        alternative_path = self._strip_known_quick_start(str(strategic_decision.get("alternative_path") or "").strip())
+        alternative_reason = str(strategic_decision.get("alternative_reason") or "").strip()
         followup_question = self._resolve_followup_question(api_payload, execution_output)
 
-        sections = [
-            "Con este escenario, tenes dos caminos posibles:",
-            f"1. {option_a} -> {consequence_a}.",
-            f"2. {option_b} -> {consequence_b}.",
-        ]
-        if chosen:
-            sections.append(
-                f"En la practica, lo mas conveniente suele ser {self._strip_known_quick_start(chosen)} porque permite avanzar sin perder control sobre los puntos que todavia definen el caso."
-            )
+        sections: list[str] = []
+        if recommended_path:
+            sections.append(f"En este caso, lo mas conveniente es: {recommended_path}")
+        if priority_action:
+            sections.append(f"La accion prioritaria ahora es: {priority_action}")
+        if justification:
+            sections.append(f"Esto suele convenir porque {justification[0].lower() + justification[1:] if len(justification) > 1 else justification.lower()}.")
+        if alternative_path:
+            sections.append(f"Otra opcion seria {alternative_path}, pero suele ser menos conveniente porque {alternative_reason or 'normalmente deja mas puntos criticos abiertos antes de presentar'}.")
         if followup_question:
             sections.append(f"Antes de cerrar la estrategia, necesito confirmar esto: {followup_question}")
         return "\n\n".join(section for section in sections if section.strip()).strip()

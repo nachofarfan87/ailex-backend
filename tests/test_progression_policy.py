@@ -138,6 +138,41 @@ def test_progression_pasa_a_ejecucion_si_execution_output_aplica():
     assert progression["progression_stage"] == "execution"
 
 
+def test_progression_marca_que_estrategia_debe_tomar_decision():
+    progression = resolve_progression_policy(
+        conversation_state=_conversation_state(
+            turn_count=4,
+            case_completeness="high",
+            progression_state={
+                "facts_collected": ["hay_hijos", "rol_procesal", "edad_hija"],
+                "questions_asked": ["El otro progenitor esta aportando algo actualmente?"],
+                "topics_covered": ["alimentos", "divorcio"],
+                "last_output_mode": "estructuracion",
+                "progression_stage": "structuring_case",
+                "recent_turns": [
+                    {
+                        "output_mode": "estructuracion",
+                        "intent_type": "general_information",
+                        "topics_covered": ["alimentos", "divorcio"],
+                        "response_fingerprint": "con lo que contas el caso queda asi",
+                    }
+                ],
+                "last_intent_type": "general_information",
+            },
+        ),
+        dialogue_policy=_dialogue_policy(action="hybrid"),
+        conversational_intelligence={"signals": {"ready_to_advance": True}},
+        intent_resolution={"intent_type": "general_information", "urgency": "medium"},
+        execution_output={"applies": False},
+        pipeline_payload=_pipeline_payload(),
+        response_text="Texto base distinto para estrategia.",
+    )
+
+    assert progression["output_mode"] == "estrategia"
+    assert progression["decision_required"] is True
+    assert progression["decision_focus"]
+
+
 def test_apply_output_mode_progression_actualiza_titulos_y_summary():
     payload = _pipeline_payload()
     progression = resolve_progression_policy(
