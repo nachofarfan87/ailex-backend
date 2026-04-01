@@ -1,3 +1,4 @@
+# c:\Users\nacho\Documents\APPS\AILEX\backend\app\services\conversation_state_service.py
 from __future__ import annotations
 
 import json
@@ -223,6 +224,16 @@ class ConversationStateService:
             "working_case_type": "",
             "working_domain": "",
             "current_stage": "intake",
+            "progression_stage": "initial",
+            "progression_state": {
+                "facts_collected": [],
+                "questions_asked": [],
+                "topics_covered": [],
+                "last_output_mode": "",
+                "progression_stage": "initial",
+                "recent_turns": [],
+                "last_intent_type": "general_information",
+            },
             "progress_signals": {
                 "known_fact_count": 0,
                 "missing_fact_count": 0,
@@ -945,6 +956,8 @@ class ConversationStateService:
         normalized["working_case_type"] = _clean_text(normalized.get("working_case_type"))
         normalized["working_domain"] = _clean_text(normalized.get("working_domain"))
         normalized["current_stage"] = _clean_text(normalized.get("current_stage")) or "intake"
+        normalized["progression_stage"] = _clean_text(normalized.get("progression_stage")) or "initial"
+        normalized["progression_state"] = self._normalize_progression_state(normalized.get("progression_state"))
         normalized["state_version"] = int(normalized.get("state_version") or STATE_VERSION)
         normalized["progress_signals"] = self._compute_progress_signals(
             known_facts=normalized["known_facts"],
@@ -977,6 +990,33 @@ class ConversationStateService:
         record.last_engine_update_at = _parse_iso_datetime(snapshot.get("last_engine_update_at"))
         db.flush()
 
+    def update_progression_state(
+        self,
+        db: Session,
+        *,
+        conversation_id: str,
+        progression_state: dict[str, Any],
+    ) -> None:
+        normalized_id = _clean_text(conversation_id)
+        if not normalized_id:
+            return
+        record = (
+            db.query(ConversationStateSnapshot)
+            .filter(ConversationStateSnapshot.conversation_id == normalized_id)
+            .one_or_none()
+        )
+        if record is None:
+            return
+        try:
+            snapshot = json.loads(record.snapshot_json)
+        except (json.JSONDecodeError, TypeError):
+            snapshot = {}
+        normalized_progression = self._normalize_progression_state(progression_state)
+        snapshot["progression_state"] = normalized_progression
+        snapshot["progression_stage"] = _clean_text(normalized_progression.get("progression_stage")) or "initial"
+        record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
+        db.flush()
+
     def update_conversation_memory(
         self,
         db: Session,
@@ -1006,6 +1046,31 @@ class ConversationStateService:
         snapshot["conversation_memory"] = dict(conversation_memory or {})
         record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
         db.flush()
+
+    def _normalize_progression_state(self, raw: Any) -> dict[str, Any]:
+        data = _as_dict(raw)
+        recent_turns: list[dict[str, Any]] = []
+        for item in _as_list(data.get("recent_turns")):
+            if not isinstance(item, dict):
+                continue
+            recent_turns.append(
+                {
+                    "output_mode": _clean_text(item.get("output_mode")),
+                    "intent_type": _clean_text(item.get("intent_type")) or "general_information",
+                    "topics_covered": _as_str_list(item.get("topics_covered")),
+                    "question_asked": _clean_text(item.get("question_asked")),
+                    "response_fingerprint": _clean_text(item.get("response_fingerprint")),
+                }
+            )
+        return {
+            "facts_collected": _as_str_list(data.get("facts_collected")),
+            "questions_asked": _as_str_list(data.get("questions_asked")),
+            "topics_covered": _as_str_list(data.get("topics_covered")),
+            "last_output_mode": _clean_text(data.get("last_output_mode")),
+            "progression_stage": _clean_text(data.get("progression_stage")) or "initial",
+            "recent_turns": recent_turns[-2:],
+            "last_intent_type": _clean_text(data.get("last_intent_type")) or "general_information",
+        }
 
 
 conversation_state_service = ConversationStateService()

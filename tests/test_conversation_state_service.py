@@ -261,6 +261,47 @@ def test_no_degrada_working_case_type_ante_turno_ambiguo_posterior():
         Base.metadata.drop_all(bind=engine)
 
 
+def test_update_progression_state_persiste_progression_stage_y_recent_turns():
+    engine, db = _build_db_session()
+    try:
+        conversation_state_service.update_conversation_state(
+            db,
+            conversation_id="conv-progression",
+            turn_input=_turn_input(conversation_id="conv-progression"),
+            pipeline_payload=_pipeline_payload(action_slug="alimentos_hijos", case_domain="alimentos"),
+        )
+
+        conversation_state_service.update_progression_state(
+            db,
+            conversation_id="conv-progression",
+            progression_state={
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": ["El otro progenitor aporta actualmente?"],
+                "topics_covered": ["alimentos"],
+                "last_output_mode": "estructuracion",
+                "progression_stage": "structuring_case",
+                "recent_turns": [
+                    {
+                        "output_mode": "estructuracion",
+                        "intent_type": "general_information",
+                        "topics_covered": ["alimentos"],
+                        "question_asked": "El otro progenitor aporta actualmente?",
+                        "response_fingerprint": "respuesta evolucionada",
+                    }
+                ],
+            },
+        )
+
+        snapshot = conversation_state_service.load_state(db, conversation_id="conv-progression")
+
+        assert snapshot["progression_stage"] == "structuring_case"
+        assert snapshot["progression_state"]["last_output_mode"] == "estructuracion"
+        assert snapshot["progression_state"]["recent_turns"][0]["response_fingerprint"] == "respuesta evolucionada"
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+
 def test_incrementa_turn_count_correctamente():
     engine, db = _build_db_session()
     try:

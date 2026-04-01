@@ -15,6 +15,15 @@ from app.services.conversational_intelligence_service import (
 from app.services.dialogue_policy_service import resolve_dialogue_policy
 from app.services.execution_output_service import build_execution_output
 from app.services.intent_resolution_service import resolve_intent_resolution
+from app.services.legal_reasoning_service import (
+    build_legal_reasoning,
+    format_legal_reasoning_as_text,
+)
+from app.services.output_mode_service import apply_output_mode_progression
+from app.services.progression_policy import (
+    finalize_progression_state,
+    resolve_progression_policy,
+)
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
 
@@ -91,6 +100,26 @@ class ResponsePostprocessor:
             api_payload=api_payload,
             response_text=response_text,
         )
+        response_text = self._attach_progression_policy(
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+            response_text=response_text,
+        )
+
+        # FASE 9 — Professional-grade reasoning
+        # Inyecta el bloque de razonamiento jurídico estructurado ANTES de los pasos prácticos.
+        # Si falla, response_text queda intacto.
+        response_text = self._inject_legal_reasoning(
+            response_text=response_text,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+        response_text = self._transform_response_by_output_mode(
+            response_text=response_text,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+
         api_payload["response_text"] = response_text
         response_text = self._apply_conversation_composer(
             api_payload=api_payload,
@@ -102,6 +131,11 @@ class ResponsePostprocessor:
         # Registra en el snapshot lo que pasó en este turno (policy + composer).
         # Si falla, no afecta la respuesta.
         self._persist_conversation_memory(db=db, api_payload=api_payload)
+        self._persist_conversation_progression(
+            db=db,
+            api_payload=api_payload,
+            response_text=response_text,
+        )
 
         try:
             conversational = pipeline_payload.get("conversational") or {}
@@ -134,6 +168,308 @@ class ResponsePostprocessor:
             warnings=list(api_payload.get("warnings") or []),
             api_payload=api_payload,
         )
+
+    # FASE 9 — Legal Reasoning
+
+    def _inject_legal_reasoning(
+        self,
+        *,
+        response_text: str,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        """
+        Extrae contexto del pipeline, construye el razonamiento jurídico estructurado
+        y lo antepone al texto de respuesta (antes de los pasos prácticos).
+        Si falla o el resultado está vacío, devuelve response_text sin modificar.
+        """
+        try:
+            case_profile = pipeline_payload.get("case_profile") or {}
+            procedural_case_state = pipeline_payload.get("procedural_case_state") or {}
+            classification = pipeline_payload.get("classification") or {}
+
+            context = {
+                "facts": case_profile.get("facts") or pipeline_payload.get("facts") or "",
+                "detected_intent": (
+                    classification.get("detected_intent")
+                    or pipeline_payload.get("detected_intent")
+                    or ""
+                ),
+                "legal_area": (
+                    case_profile.get("legal_area")
+                    or case_profile.get("case_domain")
+                    or pipeline_payload.get("legal_area")
+                    or api_payload.get("case_domain")
+                    or ""
+                ),
+                "urgency_level": (
+                    case_profile.get("urgency_level")
+                    or pipeline_payload.get("urgency_level")
+                    or "low"
+                ),
+                "has_children": bool(
+                    case_profile.get("has_children")
+                    or pipeline_payload.get("has_children")
+                ),
+                "agreement_level": (
+                    case_profile.get("agreement_level")
+                    or pipeline_payload.get("agreement_level")
+                    or "none"
+                ),
+                "blocking_factors": (
+                    procedural_case_state.get("blocking_factor")
+                    or pipeline_payload.get("blocking_factor")
+                    or ""
+                ),
+                "procedural_posture": (
+                    case_profile.get("procedural_posture")
+                    or pipeline_payload.get("procedural_posture")
+                    or ""
+                ),
+            }
+
+            reasoning = build_legal_reasoning(context)
+            api_payload["legal_reasoning"] = reasoning
+
+            block = format_legal_reasoning_as_text(reasoning).strip()
+            if block:
+                return f"{block}\n\n{response_text}" if response_text else block
+        except Exception:
+            logger.exception("No se pudo construir el razonamiento jurídico (Fase 9).")
+
+        return response_text
+
+    def _transform_response_by_output_mode(
+        self,
+        *,
+        response_text: str,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        progression_policy = api_payload.get("progression_policy") or {}
+        output_mode = str(
+            progression_policy.get("output_mode")
+            or api_payload.get("output_mode")
+            or "orientacion_inicial"
+        ).strip()
+        if output_mode == "orientacion_inicial":
+            return response_text
+
+        if output_mode == "estructuracion":
+            return self._render_structuring_response(
+                pipeline_payload=pipeline_payload,
+                api_payload=api_payload,
+            )
+        if output_mode == "estrategia":
+            return self._render_strategy_response(
+                pipeline_payload=pipeline_payload,
+                api_payload=api_payload,
+            )
+        if output_mode == "ejecucion":
+            return self._render_execution_response(
+                pipeline_payload=pipeline_payload,
+                api_payload=api_payload,
+            )
+        return response_text
+
+    def _render_structuring_response(
+        self,
+        *,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        conversation_state = dict(api_payload.get("conversation_state") or {})
+        dialogue_policy = dict(api_payload.get("dialogue_policy") or {})
+        execution_output = dict(api_payload.get("execution_output") or {})
+        progression_policy = dict(api_payload.get("progression_policy") or {})
+
+        known_items = self._select_known_case_facts(conversation_state)[:3]
+        missing_items = self._select_missing_case_facts(conversation_state)[:3]
+        point_key = self._resolve_point_key(dialogue_policy, conversation_state)
+        followup_question = self._resolve_followup_question(api_payload, execution_output)
+
+        sections: list[str] = []
+        sections.append(
+            "Con lo que contas, el caso queda asi:\n" +
+            "\n".join(f"- {item}" for item in (known_items or ["Ya hay una base inicial del caso, pero ahora conviene ordenarla mejor."]))
+        )
+        sections.append(
+            "Lo que falta para definir bien el encuadre:\n" +
+            "\n".join(f"- {item}" for item in (missing_items or ["No aparece un faltante critico adicional, pero todavia hay que cerrar el dato que cambia el encuadre."]))
+        )
+        if point_key:
+            sections.append(f"El punto clave a definir ahora es: {point_key}.")
+        elif progression_policy.get("missing_focus"):
+            sections.append(
+                f"El punto clave a definir ahora es: {str((progression_policy.get('missing_focus') or [''])[0]).strip()}."
+            )
+        if followup_question:
+            sections.append(f"Para seguir ordenando el caso, necesito un dato puntual: {followup_question}")
+        return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    def _render_strategy_response(
+        self,
+        *,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        case_strategy = dict(pipeline_payload.get("case_strategy") or {})
+        execution_output = dict(api_payload.get("execution_output") or {})
+        recommended_actions = self._dedupe_texts(
+            [
+                *list(case_strategy.get("recommended_actions") or []),
+                *list(case_strategy.get("procedural_focus") or []),
+                *list(dict(dict(pipeline_payload.get("output_modes") or {}).get("user") or {}).get("next_steps") or []),
+            ]
+        )
+        risk_analysis = self._dedupe_texts(list(case_strategy.get("risk_analysis") or []))
+        chosen = str(pipeline_payload.get("quick_start") or "").strip() or (recommended_actions[0] if recommended_actions else "")
+        option_a = recommended_actions[0] if recommended_actions else "Ordenar primero el encuadre principal del caso."
+        option_b = recommended_actions[1] if len(recommended_actions) > 1 else "Ir directo al planteo principal con la informacion disponible."
+        consequence_a = risk_analysis[0] if risk_analysis else "reduce el riesgo de avanzar con un planteo incompleto"
+        consequence_b = risk_analysis[1] if len(risk_analysis) > 1 else "puede acelerar el inicio, pero deja menos margen para corregir faltantes despues"
+        followup_question = self._resolve_followup_question(api_payload, execution_output)
+
+        sections = [
+            "Con este escenario, tenes dos caminos posibles:",
+            f"1. {option_a} -> {consequence_a}.",
+            f"2. {option_b} -> {consequence_b}.",
+        ]
+        if chosen:
+            sections.append(
+                f"En la practica, lo mas conveniente suele ser {self._strip_known_quick_start(chosen)} porque permite avanzar sin perder control sobre los puntos que todavia definen el caso."
+            )
+        if followup_question:
+            sections.append(f"Antes de cerrar la estrategia, necesito confirmar esto: {followup_question}")
+        return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    def _render_execution_response(
+        self,
+        *,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        execution_output = dict(api_payload.get("execution_output") or {})
+        execution_data = dict(execution_output.get("execution_output") or {})
+        actions = self._dedupe_texts(list(execution_data.get("what_to_do_now") or []))
+        where_to_go = self._dedupe_texts(list(execution_data.get("where_to_go") or []))
+        requests = self._dedupe_texts(list(execution_data.get("what_to_request") or []))
+        documents = self._dedupe_texts(list(execution_data.get("documents_needed") or []))
+        followup_question = self._resolve_followup_question(api_payload, execution_output)
+
+        if not actions:
+            case_strategy = dict(pipeline_payload.get("case_strategy") or {})
+            actions = self._dedupe_texts(list(case_strategy.get("recommended_actions") or []))[:3]
+
+        sections: list[str] = []
+        sections.append(
+            "Manana podrias hacer esto:\n" +
+            "\n".join(f"{index}. {item}" for index, item in enumerate(actions[:3], start=1))
+        )
+        if where_to_go:
+            sections.append(
+                "Donde ir:\n" +
+                "\n".join(f"- {item}" for item in where_to_go[:2])
+            )
+        if documents:
+            sections.append(
+                "Que presentar:\n" +
+                "\n".join(f"- {item}" for item in documents[:3])
+            )
+        if requests:
+            sections.append(
+                "Que pedir:\n" +
+                "\n".join(f"- {item}" for item in requests[:3])
+            )
+        sections.append("Si no tenes abogado:\n- podes pedir orientacion inicial en defensoria o en el organismo publico que corresponda en tu jurisdiccion.")
+        if followup_question:
+            sections.append(f"Para ajustar el paso siguiente, necesito este dato: {followup_question}")
+        return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    def _select_known_case_facts(self, conversation_state: dict[str, Any]) -> list[str]:
+        result: list[str] = []
+        for item in list(conversation_state.get("known_facts") or []):
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            value = item.get("value")
+            rendered = self._render_known_fact(key=key, value=value)
+            if rendered:
+                result.append(rendered)
+        return self._dedupe_texts(result)
+
+    def _select_missing_case_facts(self, conversation_state: dict[str, Any]) -> list[str]:
+        critical: list[str] = []
+        ordinary: list[str] = []
+        for item in list(conversation_state.get("missing_facts") or []):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("key") or "").strip()
+            priority = str(item.get("priority") or "").strip().lower()
+            importance = str(item.get("importance") or "").strip().lower()
+            purpose = str(item.get("purpose") or "").strip().lower()
+            if not label:
+                continue
+            if priority in {"critical", "high", "required"} or importance == "core" or purpose in {"identify", "enable"}:
+                critical.append(label)
+            else:
+                ordinary.append(label)
+        return self._dedupe_texts([*critical, *ordinary])
+
+    def _resolve_point_key(self, dialogue_policy: dict[str, Any], conversation_state: dict[str, Any]) -> str:
+        dominant = str(dialogue_policy.get("dominant_missing_key") or "").strip().replace("_", " ")
+        if dominant:
+            return dominant
+        missing = self._select_missing_case_facts(conversation_state)
+        return missing[0] if missing else ""
+
+    def _resolve_followup_question(
+        self,
+        api_payload: dict[str, Any],
+        execution_output: dict[str, Any],
+    ) -> str:
+        execution_data = dict(execution_output.get("execution_output") or {})
+        question = str(execution_data.get("followup_question") or "").strip()
+        if question:
+            return question
+        progression_policy = dict(api_payload.get("progression_policy") or {})
+        missing_focus = list(progression_policy.get("missing_focus") or [])
+        if missing_focus:
+            return f"Necesito precisar {str(missing_focus[0]).strip()}."
+        conversational = dict(api_payload.get("conversational") or {})
+        return str(conversational.get("question") or "").strip()
+
+    def _render_known_fact(self, *, key: str, value: Any) -> str:
+        clean_key = str(key or "").strip().replace("_", " ")
+        clean_value = str(value or "").strip()
+        if key == "hay_hijos":
+            return "Hay hijos involucrados." if str(value).lower() not in {"false", "0", "no"} else "No aparecen hijos involucrados."
+        if key == "rol_procesal" and clean_value:
+            return f"El rol procesal informado es {clean_value}."
+        if key == "ingresos_otro_progenitor" and clean_value:
+            return "Ya hay un dato inicial sobre los ingresos del otro progenitor."
+        if clean_value:
+            return f"{clean_key.capitalize()}: {clean_value}."
+        return ""
+
+    def _strip_known_quick_start(self, text: str) -> str:
+        value = str(text or "").strip()
+        prefix = "Primer paso recomendado:"
+        if value.lower().startswith(prefix.lower()):
+            return value[len(prefix):].strip(" .:")
+        return value
+
+    def _dedupe_texts(self, items: list[Any]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in items:
+            value = str(item or "").strip()
+            normalized = value.casefold()
+            if not value or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(value)
+        return result
 
     # 8.2D — Conversation Composer
 
@@ -354,6 +690,82 @@ class ResponsePostprocessor:
             logger.exception("No se pudo construir execution output (8.5).")
 
         return response_text
+
+    def _attach_progression_policy(
+        self,
+        *,
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+        response_text: str,
+    ) -> str:
+        conversation_state = api_payload.get("conversation_state")
+        dialogue_policy = api_payload.get("dialogue_policy")
+        conversational_intelligence = api_payload.get("conversational_intelligence")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return response_text
+        if not isinstance(dialogue_policy, dict) or not dialogue_policy:
+            return response_text
+        if not isinstance(conversational_intelligence, dict) or not conversational_intelligence:
+            return response_text
+
+        try:
+            progression_policy = resolve_progression_policy(
+                conversation_state=conversation_state,
+                dialogue_policy=dialogue_policy,
+                conversational_intelligence=conversational_intelligence,
+                intent_resolution=api_payload.get("intent_resolution"),
+                execution_output=api_payload.get("execution_output"),
+                pipeline_payload=pipeline_payload,
+                response_text=response_text,
+            )
+            api_payload["progression_policy"] = progression_policy
+            evolved_payload = apply_output_mode_progression(api_payload, progression_policy)
+            if isinstance(evolved_payload.get("output_modes"), dict) and evolved_payload.get("output_modes"):
+                api_payload["output_modes"] = evolved_payload["output_modes"]
+            if str(evolved_payload.get("output_mode") or "").strip():
+                api_payload["output_mode"] = evolved_payload["output_mode"]
+            rendered = str(progression_policy.get("rendered_response_text") or "").strip()
+            if rendered and progression_policy.get("output_mode") != "orientacion_inicial":
+                return rendered
+        except Exception:
+            logger.exception("No se pudo resolver progression policy.")
+
+        return response_text
+
+    def _persist_conversation_progression(
+        self,
+        *,
+        db: Any | None,
+        api_payload: dict[str, Any],
+        response_text: str,
+    ) -> None:
+        if db is None:
+            return
+        conversation_state = api_payload.get("conversation_state")
+        progression_policy = api_payload.get("progression_policy")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        if not isinstance(progression_policy, dict) or not progression_policy:
+            return
+
+        conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+        if not conversation_id:
+            return
+
+        try:
+            finalized_state = finalize_progression_state(
+                progression_policy=progression_policy,
+                response_text=response_text,
+            )
+            api_payload["conversation_state"]["progression_state"] = finalized_state
+            api_payload["conversation_state"]["progression_stage"] = finalized_state.get("progression_stage") or "initial"
+            conversation_state_service.update_progression_state(
+                db,
+                conversation_id=conversation_id,
+                progression_state=finalized_state,
+            )
+        except Exception:
+            logger.exception("No se pudo persistir progression_state.")
 
     def _extract_conversation_id(
         self,

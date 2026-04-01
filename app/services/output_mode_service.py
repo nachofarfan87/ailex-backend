@@ -1,3 +1,4 @@
+# c:\Users\nacho\Documents\APPS\AILEX\backend\app\services\output_mode_service.py
 from __future__ import annotations
 
 import re
@@ -1542,6 +1543,85 @@ def _professional_summary(response: dict[str, Any]) -> str:
     if summary:
         return summary
     return "No hay desarrollo estrategico suficiente para ampliar el analisis, pero el payload sigue siendo compatible."
+
+
+def apply_output_mode_progression(
+    response: dict[str, Any] | None,
+    progression_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = deepcopy(response or {})
+    progression = _as_dict(progression_policy)
+    output_modes = _as_dict(payload.get("output_modes"))
+    if not output_modes or not progression:
+        return payload
+
+    selected_mode = _clean_text(progression.get("output_mode")) or "orientacion_inicial"
+    case_domain = _clean_text(
+        payload.get("case_domain")
+        or _as_dict(payload.get("case_profile")).get("case_domain")
+    )
+    user_mode = dict(_as_dict(output_modes.get("user")))
+    professional_mode = dict(_as_dict(output_modes.get("professional")))
+
+    if user_mode:
+        user_mode["mode"] = selected_mode
+        user_mode["title"] = _progression_user_title(case_domain, selected_mode)
+        user_summary = _clean_text(progression.get("user_summary"))
+        if user_summary:
+            user_mode["summary"] = user_summary
+            user_mode["what_this_means"] = user_summary
+        suggested_steps = _as_str_list(progression.get("suggested_next_steps"))
+        if suggested_steps:
+            user_mode["next_steps"] = suggested_steps[:3]
+        missing_focus = _as_str_list(progression.get("missing_focus"))
+        if missing_focus:
+            user_mode["missing_information"] = missing_focus[:3]
+
+    if professional_mode:
+        professional_mode["mode"] = selected_mode
+        professional_mode["title"] = _progression_professional_title(case_domain, selected_mode)
+        professional_summary = _clean_text(progression.get("professional_summary"))
+        if professional_summary:
+            professional_mode["summary"] = professional_summary
+
+    payload["output_mode"] = selected_mode
+    payload["output_modes"] = {
+        "user": user_mode,
+        "professional": professional_mode,
+    }
+    return payload
+
+
+def _progression_user_title(case_domain: str, selected_mode: str) -> str:
+    if selected_mode == "ejecucion":
+        if case_domain.casefold() == "divorcio":
+            return "Que hacer ahora en tu divorcio"
+        if case_domain:
+            return f"Que hacer ahora en {_humanize_case_domain(case_domain)}"
+        return "Que hacer ahora"
+    if selected_mode == "estrategia":
+        if case_domain:
+            return f"Estrategia para {_humanize_case_domain(case_domain)}"
+        return "Estrategia del caso"
+    if selected_mode == "estructuracion":
+        if case_domain:
+            return f"Estructuracion del caso de {_humanize_case_domain(case_domain)}"
+        return "Estructuracion del caso"
+    return _user_title(case_domain, "")
+
+
+def _progression_professional_title(case_domain: str, selected_mode: str) -> str:
+    if selected_mode == "ejecucion":
+        return "Salida ejecutiva priorizada"
+    if selected_mode == "estrategia":
+        if case_domain:
+            return f"Estrategia aplicada en {_humanize_case_domain(case_domain)}"
+        return "Estrategia aplicada"
+    if selected_mode == "estructuracion":
+        if case_domain:
+            return f"Estructuracion estrategica de {_humanize_case_domain(case_domain)}"
+        return "Estructuracion estrategica"
+    return _professional_title(case_domain)
 
 
 def _to_user_list(items: Any) -> list[str]:

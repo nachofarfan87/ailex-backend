@@ -60,6 +60,19 @@ def _payload(
             "should_ask_first": should_ask_first,
             "question": "El otro progenitor esta aportando algo actualmente?" if should_ask_first else "",
         },
+        "output_modes": {
+            "user": {
+                "title": "Orientacion inicial para alimentos",
+                "summary": "Hay base para orientar el reclamo.",
+                "what_this_means": "Hay base para orientar el reclamo.",
+                "next_steps": ["Preparar inicio del reclamo."],
+                "missing_information": ["ingresos_otro_progenitor"],
+            },
+            "professional": {
+                "title": "Encuadre estrategico de alimentos",
+                "summary": "Encuadre inicial.",
+            },
+        },
     }
     if practical:
         pipeline_payload["quick_start"] = "Primer paso recomendado: Preparar presentacion inicial de divorcio con encuadre y competencia correctos."
@@ -168,8 +181,9 @@ def test_pipeline_adjunta_intent_resolution_y_execution_output_practico(db_sessi
     assert final_output.api_payload["intent_resolution"]["intent_type"] == "action_now"
     assert "execution_output" in final_output.api_payload
     assert final_output.api_payload["execution_output"]["applies"] is True
-    assert final_output.response_text.startswith("Que podes hacer hoy o manana para empezar tu divorcio:")
-    assert "Para afinar el paso siguiente" in final_output.response_text
+    assert "Manana podrias hacer esto:" in final_output.response_text
+    assert "Si no tenes abogado:" in final_output.response_text
+    assert "Para ajustar el paso siguiente" in final_output.response_text
 
 
 def test_inteligencia_reduce_questions_no_rompe_respuesta(db_session):
@@ -208,6 +222,187 @@ def test_inteligencia_reduce_questions_no_rompe_respuesta(db_session):
     assert "conversational_intelligence" in final_output.api_payload
 
 
+def test_pipeline_evita_loop_de_orientacion_inicial_y_avanza_output_mode(db_session):
+    processor = ResponsePostprocessor()
+
+    normalized_input_1, pipeline_payload_1 = _payload(
+        conversation_id="conv-progress",
+        should_ask_first=False,
+        query="Quiero reclamar alimentos por mi hija",
+    )
+    first_output = processor.postprocess(
+        request_id="req-progress-1",
+        normalized_input=normalized_input_1,
+        pipeline_payload=pipeline_payload_1,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    normalized_input_2, pipeline_payload_2 = _payload(
+        conversation_id="conv-progress",
+        should_ask_first=False,
+        query="No me pasa alimentos",
+    )
+    second_output = processor.postprocess(
+        request_id="req-progress-2",
+        normalized_input=normalized_input_2,
+        pipeline_payload=pipeline_payload_2,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert first_output.api_payload["output_modes"]["user"]["title"] == "Orientacion inicial para alimentos"
+    assert second_output.api_payload["progression_policy"]["output_mode"] == "estructuracion"
+    assert second_output.api_payload["output_modes"]["user"]["title"] == "Estructuracion del caso de alimentos"
+    assert second_output.api_payload["conversation_state"]["progression_stage"] == "structuring_case"
+    assert "Con lo que contas, el caso queda asi:" in second_output.response_text
+    assert "Lo que falta para definir bien el encuadre:" in second_output.response_text
+    assert first_output.response_text != second_output.response_text
+
+
+def test_estructuracion_lista_hechos_y_no_repite_explicacion_basica(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-structuring",
+        should_ask_first=False,
+        query="No me pasa alimentos",
+    )
+
+    def _progression(*args, **kwargs):
+        return {
+            "output_mode": "estructuracion",
+            "progression_stage": "structuring_case",
+            "missing_focus": ["ingresos del otro progenitor"],
+            "progression_state": {
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": [],
+                "topics_covered": ["alimentos"],
+                "last_output_mode": "estructuracion",
+                "progression_stage": "structuring_case",
+                "recent_turns": [],
+                "last_intent_type": "general_information",
+                "current_turn": {"output_mode": "estructuracion", "topics_covered": ["alimentos"]},
+            },
+            "rendered_response_text": "",
+        }
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _progression)
+
+    final_output = processor.postprocess(
+        request_id="req-structuring",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert "Con lo que contas, el caso queda asi:" in final_output.response_text
+    assert "Lo que falta para definir bien el encuadre:" in final_output.response_text
+    assert "es un derecho" not in final_output.response_text.lower()
+
+
+def test_estrategia_compara_opciones_y_no_contiene_explicacion_basica(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-strategy",
+        should_ask_first=False,
+        query="No me pasa alimentos",
+    )
+    pipeline_payload["case_strategy"]["recommended_actions"] = [
+        "Iniciar el reclamo principal con pedido de cuota provisoria.",
+        "Reunir primero mas prueba de ingresos antes de presentar.",
+    ]
+    pipeline_payload["case_strategy"]["risk_analysis"] = [
+        "permite pedir una cuota provisoria mas rapido",
+        "demora mas el inicio si esperas toda la prueba",
+    ]
+    pipeline_payload["quick_start"] = "Primer paso recomendado: Iniciar el reclamo principal con pedido de cuota provisoria."
+
+    def _progression(*args, **kwargs):
+        return {
+            "output_mode": "estrategia",
+            "progression_stage": "strategy",
+            "missing_focus": ["ingresos del otro progenitor"],
+            "progression_state": {
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": [],
+                "topics_covered": ["alimentos"],
+                "last_output_mode": "estrategia",
+                "progression_stage": "strategy",
+                "recent_turns": [],
+                "last_intent_type": "general_information",
+                "current_turn": {"output_mode": "estrategia", "topics_covered": ["alimentos"]},
+            },
+            "rendered_response_text": "",
+        }
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _progression)
+
+    final_output = processor.postprocess(
+        request_id="req-strategy",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert "Con este escenario, tenes dos caminos posibles:" in final_output.response_text
+    assert "1." in final_output.response_text
+    assert "2." in final_output.response_text
+    assert "En la practica, lo mas conveniente suele ser" in final_output.response_text
+    assert "es un derecho" not in final_output.response_text.lower()
+
+
+def test_ejecucion_contiene_pasos_accionables_y_no_repite_orientacion_basica(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-execution-transform",
+        should_ask_first=False,
+        query="Que hago manana?",
+        practical=True,
+    )
+
+    def _progression(*args, **kwargs):
+        return {
+            "output_mode": "ejecucion",
+            "progression_stage": "execution",
+            "missing_focus": ["modalidad del divorcio"],
+            "progression_state": {
+                "facts_collected": ["hay_hijos"],
+                "questions_asked": [],
+                "topics_covered": ["divorcio"],
+                "last_output_mode": "ejecucion",
+                "progression_stage": "execution",
+                "recent_turns": [],
+                "last_intent_type": "action_now",
+                "current_turn": {"output_mode": "ejecucion", "topics_covered": ["divorcio"]},
+            },
+            "rendered_response_text": "",
+        }
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _progression)
+
+    final_output = processor.postprocess(
+        request_id="req-execution-transform",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(strategy_mode="conservadora", confidence_score=0.7),
+        db=db_session,
+    )
+
+    assert "Manana podrias hacer esto:" in final_output.response_text
+    assert "Donde ir:" in final_output.response_text
+    assert "Que presentar:" in final_output.response_text
+    assert "Que pedir:" in final_output.response_text
+    assert "Si no tenes abogado:" in final_output.response_text
+    assert "es un derecho" not in final_output.response_text.lower()
+
+
 def test_no_rompe_respuesta_si_el_servicio_falla(db_session, monkeypatch):
     processor = ResponsePostprocessor()
     normalized_input, pipeline_payload = _payload(conversation_id="conv-fail", should_ask_first=False)
@@ -231,7 +426,7 @@ def test_no_rompe_respuesta_si_el_servicio_falla(db_session, monkeypatch):
         db=db_session,
     )
 
-    assert final_output.response_text == "Hay base para orientar el reclamo."
+    assert "Hay base para orientar el reclamo." in final_output.response_text
     assert "conversation_state" not in final_output.api_payload
 
 
@@ -359,3 +554,35 @@ def test_no_rompe_respuesta_si_execution_output_falla(db_session, monkeypatch):
     assert "dialogue_policy" in final_output.api_payload
     assert "intent_resolution" in final_output.api_payload
     assert "execution_output" not in final_output.api_payload
+
+
+def test_no_rompe_respuesta_si_progression_policy_falla(db_session, monkeypatch):
+    processor = ResponsePostprocessor()
+    normalized_input, pipeline_payload = _payload(
+        conversation_id="conv-progression-fail",
+        should_ask_first=False,
+        query="No me pasa alimentos",
+    )
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(response_postprocessor_module, "resolve_progression_policy", _raise)
+
+    final_output = processor.postprocess(
+        request_id="req-progression-fail",
+        normalized_input=normalized_input,
+        pipeline_payload=pipeline_payload,
+        retrieval=RetrievalBundle(source_mode="normative_only"),
+        strategy=StrategyBundle(
+            strategy_mode="conservadora",
+            dominant_factor="norma",
+            confidence_score=0.7,
+            confidence_label="medium",
+        ),
+        db=db_session,
+    )
+
+    assert "conversation_state" in final_output.api_payload
+    assert "dialogue_policy" in final_output.api_payload
+    assert "progression_policy" not in final_output.api_payload
