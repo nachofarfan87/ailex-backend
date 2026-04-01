@@ -203,6 +203,7 @@ class QueryOrchestrator:
             pipeline_payload=payload,
             retrieval=retrieval,
             strategy=strategy,
+            db=db,
         )
         timings.postprocess_ms = self._elapsed_ms(postprocess_start)
 

@@ -1,3 +1,4 @@
+# c:\Users\nacho\Documents\APPS\AILEX\backend\app\api\legal_query.py
 from __future__ import annotations
 
 import logging
@@ -101,6 +102,8 @@ class LegalQueryResponse(BaseModel):
     output_modes: dict[str, dict[str, Any]] = Field(default_factory=dict)
     conversational: dict[str, Any] = Field(default_factory=dict)
     conversational_response: dict[str, Any] = Field(default_factory=dict)
+    conversation_state: dict[str, Any] = Field(default_factory=dict)
+    dialogue_policy: dict[str, Any] = Field(default_factory=dict)
     generated_document: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     confidence: Optional[float] = None

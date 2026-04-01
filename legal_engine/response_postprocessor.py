@@ -1,10 +1,14 @@
+# c:\Users\nacho\Documents\APPS\AILEX\backend\legal_engine\response_postprocessor.py
 from __future__ import annotations
 
+import logging
 import re
 from difflib import SequenceMatcher
 from typing import Any
 
 from app.services import conversation_observability_service
+from app.services.conversation_state_service import conversation_state_service
+from app.services.dialogue_policy_service import resolve_dialogue_policy
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
 
 
@@ -22,6 +26,8 @@ _NOISE_PATTERNS = (
     "razonamiento normativo generico",
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ResponsePostprocessor:
     def postprocess(
@@ -32,6 +38,7 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         retrieval: RetrievalBundle,
         strategy: StrategyBundle,
+        db: Any | None = None,
     ) -> FinalOutput:
         raw_response_text = self._build_response_text(pipeline_payload)
         response_text = self._sanitize_text(raw_response_text)
@@ -51,6 +58,17 @@ class ResponsePostprocessor:
             pipeline_payload=pipeline_payload,
             retrieval=retrieval,
             strategy=strategy,
+        )
+        self._attach_conversation_state(
+            db=db,
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+        self._attach_dialogue_policy(
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
         )
         try:
             conversational = pipeline_payload.get("conversational") or {}
@@ -83,6 +101,71 @@ class ResponsePostprocessor:
             warnings=list(api_payload.get("warnings") or []),
             api_payload=api_payload,
         )
+
+    def _attach_conversation_state(
+        self,
+        *,
+        db: Any | None,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        conversation_id = self._extract_conversation_id(normalized_input, pipeline_payload, api_payload)
+        if not conversation_id or db is None:
+            return
+        try:
+            snapshot = conversation_state_service.update_conversation_state(
+                db,
+                conversation_id=conversation_id,
+                turn_input=normalized_input,
+                pipeline_payload=pipeline_payload,
+                response_payload=api_payload,
+            )
+        except Exception:
+            logger.exception(
+                "No se pudo actualizar el estado conversacional.",
+                extra={"conversation_id": conversation_id},
+            )
+            return
+        if snapshot:
+            api_payload["conversation_state"] = snapshot
+
+    def _attach_dialogue_policy(
+        self,
+        *,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        conversation_state = api_payload.get("conversation_state")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        try:
+            api_payload["dialogue_policy"] = resolve_dialogue_policy(
+                conversation_state=conversation_state,
+                turn_signals={"normalized_input": normalized_input},
+                pipeline_payload=pipeline_payload,
+            )
+        except Exception:
+            logger.exception("No se pudo resolver dialogue policy.")
+
+    def _extract_conversation_id(
+        self,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> str:
+        metadata = normalized_input.get("metadata") or {}
+        for source in (
+            metadata.get("conversation_id"),
+            metadata.get("conversationId"),
+            pipeline_payload.get("conversation_id"),
+            api_payload.get("conversation_id"),
+        ):
+            normalized = str(source or "").strip()
+            if normalized:
+                return normalized
+        return ""
 
     def _build_api_payload(
         self,
