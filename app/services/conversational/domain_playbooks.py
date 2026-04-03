@@ -42,31 +42,15 @@ def build_alimentos_playbook(context: dict[str, Any]) -> dict[str, Any]:
     if primary_question and slot_key:
         primary_question = simplify_question_text(primary_question, slot_key)
 
-    messages = [
-        {
-            "type": "info",
-            "text": _build_initial_orientation(query_text),
-        },
-        {
-            "type": "info",
-            "text": "Es un derecho de tu hija o hijo, incluso si el otro progenitor está aportando poco o de forma irregular.",
-        },
-        {
-            "type": "practical",
-            "text": "Podés iniciarlo en el juzgado de familia o, si hoy no tenés abogado, pedir orientación en la defensoría.",
-        },
-        {
-            "type": "practical",
-            "text": "También podés pedir una cuota provisoria para no esperar al final del proceso.",
-        },
-        {
-            "type": "focus",
-            "text": _build_documents_message(query_text),
-        },
-    ]
-
-    if primary_question:
-        messages.append({"type": "question", "text": primary_question})
+    conversation_turns = int(conversation_memory.get("conversation_turns") or 0)
+    resolved_slots = set(conversation_memory.get("resolved_slots") or [])
+    messages = _build_messages(
+        query_text=query_text,
+        known_facts=known_facts,
+        conversation_turns=conversation_turns,
+        resolved_slots=resolved_slots,
+        primary_question=primary_question,
+    )
 
     return {
         "mode": "guided_answer",
@@ -119,3 +103,88 @@ def _normalize_text(value: str) -> str:
     text = unicodedata.normalize("NFD", str(value or ""))
     text = "".join(char for char in text if unicodedata.category(char) != "Mn")
     return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _build_messages(
+    *,
+    query_text: str,
+    known_facts: dict,
+    conversation_turns: int,
+    resolved_slots: set,
+    primary_question: str | None,
+) -> list[dict]:
+    """
+    Build the message list adapted to conversation state.
+
+    Turn 0 (first contact): full orientation block.
+    Turn 1+: skip already-given orientation, lead with what's known and what's next.
+    """
+    messages: list[dict] = []
+
+    if conversation_turns == 0:
+        # First turn: full orientation
+        messages.append({"type": "info", "text": _build_initial_orientation(query_text)})
+        messages.append({
+            "type": "info",
+            "text": "Es un derecho de tu hija o hijo, incluso si el otro progenitor está aportando poco o de forma irregular.",
+        })
+        messages.append({
+            "type": "practical",
+            "text": "Podés iniciarlo en el juzgado de familia o, si hoy no tenés abogado, pedir orientación en la defensoría.",
+        })
+        messages.append({
+            "type": "practical",
+            "text": "También podés pedir una cuota provisoria para no esperar al final del proceso.",
+        })
+        messages.append({"type": "focus", "text": _build_documents_message(query_text)})
+    else:
+        # Follow-up turns: acknowledge what was learned, skip base orientation
+        ack = _build_acknowledgement(known_facts, resolved_slots, conversation_turns)
+        if ack:
+            messages.append({"type": "info", "text": ack})
+        progress = _build_progress_message(known_facts, resolved_slots)
+        if progress:
+            messages.append({"type": "focus", "text": progress})
+
+    if primary_question:
+        messages.append({"type": "question", "text": primary_question})
+
+    return messages
+
+
+def _build_acknowledgement(known_facts: dict, resolved_slots: set, turn: int) -> str:
+    """Generate a short acknowledgement based on what the user just revealed."""
+    convivencia = known_facts.get("convivencia")
+    aportes = known_facts.get("aportes_actuales")
+
+    if convivencia is True:
+        return "Bien, con el hijo o hija viviendo con vos tenés legitimación directa para reclamar."
+    if convivencia is False:
+        return "Entendido. Vamos a necesitar determinar quién ejerce la guarda para encuadrar el reclamo."
+    if aportes is False:
+        return "Con eso confirmado, el incumplimiento refuerza la urgencia del reclamo."
+    if aportes is True:
+        return "Bien. Aunque haya aportes parciales, podés reclamar la cuota completa que le corresponde."
+    if len(resolved_slots) >= 3:
+        return "Con lo que me contaste ya tenemos una base sólida para avanzar."
+    if turn == 1:
+        return "Gracias por la información. Necesito confirmar algunos datos más."
+    return "Bien. Sigamos construyendo el caso."
+
+
+def _build_progress_message(known_facts: dict, resolved_slots: set) -> str:
+    """Surface what we know so far when there's something meaningful to show."""
+    if not resolved_slots:
+        return ""
+    items = []
+    if "convivencia" in resolved_slots:
+        val = known_facts.get("convivencia")
+        items.append("Convivencia: " + ("sí" if val else "no confirmada"))
+    if "aportes_actuales" in resolved_slots:
+        val = known_facts.get("aportes_actuales")
+        items.append("Aportes actuales: " + ("sí" if val else "incumplimiento"))
+    if "ingresos" in resolved_slots:
+        items.append("Situación laboral del otro progenitor: registrada")
+    if not items:
+        return ""
+    return "Lo que ya tenemos: " + " · ".join(items) + "."

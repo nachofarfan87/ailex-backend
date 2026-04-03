@@ -148,6 +148,9 @@ class QueryOrchestrator:
             facts=facts,
             metadata=metadata,
         )
+        # C.1 — inject prior conversation state before pipeline runs so the LLM
+        # and all downstream components see accumulated facts and memory.
+        self._inject_prior_conversation_state(normalized, db=db)
         timings.normalization_ms = self._elapsed_ms(normalized_start)
 
         decision = self._decide(normalized=normalized, db=db)
@@ -226,6 +229,77 @@ class QueryOrchestrator:
         timings.final_assembly_ms = self._elapsed_ms(final_assembly_start)
         timings.total_ms = self._elapsed_ms(total_start)
         return result
+
+    def _inject_prior_conversation_state(
+        self,
+        normalized: NormalizedOrchestratorInput,
+        *,
+        db: Any | None,
+    ) -> None:
+        """
+        C.1 — Loads the prior ConversationStateSnapshot from the DB and injects it
+        into normalized.metadata and normalized.facts BEFORE the pipeline runs.
+
+        Three things are injected:
+        1. known_facts → merged into normalized.facts so the LLM / case profile
+           builder sees accumulated facts from previous turns (current turn wins).
+        2. conversation_memory → injected into metadata.clarification_context as
+           DB fallback when the frontend didn't send it (e.g. session restore).
+        3. previous_conversation_state + progression_state → injected into metadata
+           so downstream services (output_mode_service, progression_policy) can
+           read prior context even before the postprocessor runs.
+
+        Fails silently — never raises; any error is swallowed to keep the pipeline safe.
+        """
+        if db is None:
+            return
+        conversation_id = self._extract_conversation_id_from_metadata(normalized.metadata)
+        if not conversation_id:
+            return
+
+        try:
+            from app.services.conversation_state_service import conversation_state_service
+            prior_state = conversation_state_service.load_state(db, conversation_id=conversation_id)
+        except Exception:
+            return
+
+        if not prior_state or not int(prior_state.get("turn_count") or 0):
+            return  # first turn — nothing to inject
+
+        # 1. Merge accumulated known_facts into normalized.facts
+        prior_facts: dict[str, Any] = {}
+        for item in list(prior_state.get("known_facts") or []):
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            value = item.get("value")
+            if key and value is not None:
+                prior_facts[key] = value
+        if prior_facts:
+            # Current turn facts always override prior ones
+            normalized.facts = {**prior_facts, **normalized.facts}
+
+        # 2. Inject conversation_memory into clarification_context as DB fallback
+        clarification_context = dict(normalized.metadata.get("clarification_context") or {})
+        if not clarification_context.get("conversation_memory"):
+            db_memory = prior_state.get("conversation_memory") or {}
+            if db_memory:
+                clarification_context["conversation_memory"] = db_memory
+                normalized.metadata["clarification_context"] = clarification_context
+
+        # 3. Expose prior state and progression for downstream services
+        normalized.metadata["previous_conversation_state"] = prior_state
+        progression_state = prior_state.get("progression_state") or {}
+        if progression_state:
+            normalized.metadata["progression_state"] = progression_state
+
+    def _extract_conversation_id_from_metadata(self, metadata: dict[str, Any]) -> str:
+        """Mirrors postprocessor._extract_conversation_id for early resolution."""
+        for key in ("conversation_id", "conversationId", "session_id", "sessionId"):
+            value = str(metadata.get(key) or "").strip()
+            if value:
+                return value
+        return ""
 
     def _normalize_input(
         self,

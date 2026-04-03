@@ -471,6 +471,11 @@ def _sync_with_conversation_memory(
                 conversational["should_ask_first"] = False
             conversational["guided_response"] = None
 
+    # Expose conversation_memory in conversational so the frontend can round-trip it
+    # back in metadata.clarification_context.conversation_memory on the next request.
+    if conv_memory:
+        conversational["conversation_memory"] = conv_memory
+
 
 def _question_targets_resolved_slot(question: str, resolved_slots: set[str]) -> bool:
     """Return True if *question* is about a slot that was already resolved."""

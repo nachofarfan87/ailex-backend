@@ -43,6 +43,7 @@ _DEFAULT_MEMORY: dict[str, Any] = {
     "last_dominant_missing_key": "",
     "last_turn_type": "",
     "last_composition_strategy": "",
+    "last_user_message": "",
     "asked_missing_keys_history": [],
     "explained_topics": [],
     "used_lead_types": [],
@@ -65,6 +66,7 @@ def normalize_memory(raw: dict[str, Any] | None) -> dict[str, Any]:
     result["last_dominant_missing_key"] = str(mem.get("last_dominant_missing_key") or "")
     result["last_turn_type"] = str(mem.get("last_turn_type") or "")
     result["last_composition_strategy"] = str(mem.get("last_composition_strategy") or "")
+    result["last_user_message"] = str(mem.get("last_user_message") or "")
     result["asked_missing_keys_history"] = list(mem.get("asked_missing_keys_history") or [])
     result["explained_topics"] = list(mem.get("explained_topics") or [])
     result["used_lead_types"] = list(mem.get("used_lead_types") or [])
@@ -77,12 +79,15 @@ def build_memory_update(
     dialogue_policy: dict[str, Any] | None,
     composer_output: dict[str, Any] | None,
     conversation_state: dict[str, Any] | None = None,
+    last_user_message: str | None = None,
 ) -> dict[str, Any]:
     """
     Produce la memoria actualizada combinando el estado previo con los resultados
     del turno actual (dialogue_policy + composer_output).
 
     Diseñado para llamarse DESPUÉS de que policy y composer ya corrieron.
+    last_user_message se persiste para que conversational_intelligence_service
+    pueda detectar baja novedad y repetición en turnos posteriores.
     """
     mem = normalize_memory(current_memory)
     policy = dict(dialogue_policy or {})
@@ -109,6 +114,10 @@ def build_memory_update(
     strategy = str(composer.get("composition_strategy") or "").strip()
     if strategy:
         mem["last_composition_strategy"] = strategy
+
+    message = str(last_user_message or "").strip()
+    if message:
+        mem["last_user_message"] = message
 
     # ── Acumular asked_missing_keys_history ────────────────────────────────────
     # Solo cuando se hizo una pregunta sobre ese dato (action ask o hybrid)

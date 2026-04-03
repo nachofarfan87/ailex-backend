@@ -548,11 +548,21 @@ class ResponsePostprocessor:
 
             current_memory = dict(conversation_state.get("conversation_memory") or {})
             composer_output = dict(api_payload.get("composer_output") or {})
+            # Derive last_user_message: prefer the clarification answer over the raw query
+            _meta = dict(api_payload.get("metadata") or {})
+            _cc = dict(_meta.get("clarification_context") or {})
+            last_user_message = str(
+                _cc.get("submitted_text")
+                or _cc.get("last_user_answer")
+                or api_payload.get("query")
+                or ""
+            ).strip()
             updated_memory = build_memory_update(
                 current_memory=current_memory,
                 dialogue_policy=dialogue_policy,
                 composer_output=composer_output,
                 conversation_state=conversation_state,
+                last_user_message=last_user_message,
             )
             api_payload["conversation_state"]["conversation_memory"] = updated_memory
             conversation_state_service.update_conversation_memory(
@@ -782,6 +792,9 @@ class ResponsePostprocessor:
         for source in (
             metadata.get("conversation_id"),
             metadata.get("conversationId"),
+            # session_id is stable across turns and sent by the frontend in every request
+            metadata.get("session_id"),
+            metadata.get("sessionId"),
             pipeline_payload.get("conversation_id"),
             api_payload.get("conversation_id"),
         ):

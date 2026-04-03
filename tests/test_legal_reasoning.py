@@ -1,13 +1,9 @@
-# backend/tests/test_legal_reasoning.py
 from app.services.legal_reasoning_service import build_legal_reasoning, format_legal_reasoning_as_text
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 
 def _context(overrides: dict | None = None) -> dict:
     base = {
-        "facts": "Las partes desean disolver el vínculo matrimonial.",
+        "facts": "Las partes desean disolver el vinculo matrimonial y necesitan ordenar el conflicto.",
         "detected_intent": "iniciar divorcio",
         "legal_area": "divorcio",
         "urgency_level": "low",
@@ -25,7 +21,8 @@ def _recommended(result: dict) -> dict:
     return next(s for s in result["scenarios"] if s["recommended"])
 
 
-# ── Caso 1: divorcio sin acuerdo → recomienda vía unilateral ──────────────────
+def _scenario(result: dict, needle: str) -> dict:
+    return next(s for s in result["scenarios"] if needle.lower() in s["name"].lower())
 
 
 def test_divorcio_sin_acuerdo_recomienda_unilateral():
@@ -39,96 +36,138 @@ def test_divorcio_sin_acuerdo_recomienda_unilateral():
     recommended = _recommended(result)
     assert recommended["name"] == "Divorcio unilateral"
     assert recommended["recommended"] is True
-
-    # Solo 1 escenario puede ser recommended
-    recommended_count = sum(1 for s in result["scenarios"] if s["recommended"])
-    assert recommended_count == 1
+    assert recommended["score"] > _scenario(result, "consensuado")["score"]
+    assert sum(1 for s in result["scenarios"] if s["recommended"]) == 1
 
 
-# ── Caso 2: divorcio con acuerdo → recomienda vía consensuada ─────────────────
-
-
-def test_divorcio_con_acuerdo_recomienda_consensuado():
+def test_divorcio_con_acuerdo_y_sin_bloqueo_recomienda_consensuado():
     result = build_legal_reasoning(_context({"agreement_level": "full"}))
 
     recommended = _recommended(result)
     assert recommended["name"] == "Divorcio consensuado"
     assert recommended["viability"] == "alta"
     assert recommended["risk"] == "bajo"
-
-    recommended_count = sum(1 for s in result["scenarios"] if s["recommended"])
-    assert recommended_count == 1
-
-
-# ── Caso 3: caso urgente → prioriza escenario rápido ─────────────────────────
+    assert recommended["score"] >= _scenario(result, "unilateral")["score"]
+    assert sum(1 for s in result["scenarios"] if s["recommended"]) == 1
 
 
-def test_caso_urgente_prioriza_escenario_rapido():
+def test_alimentos_urgente_prioriza_la_via_mas_rapida():
     result = build_legal_reasoning(
-        _context({
-            "legal_area": "alimentos",
-            "urgency_level": "high",
-            "has_children": True,
-        })
+        _context(
+            {
+                "legal_area": "alimentos",
+                "urgency_level": "high",
+                "has_children": True,
+            }
+        )
     )
 
     recommended = _recommended(result)
     assert recommended["name"] == "Cuota alimentaria incidental"
     assert recommended["recommended"] is True
-
-    assert "urgencia" in result["recommended_strategy"].lower() or "rápida" in result["recommended_strategy"].lower()
-
-    recommended_count = sum(1 for s in result["scenarios"] if s["recommended"])
-    assert recommended_count == 1
+    assert recommended["score"] > _scenario(result, "autonomo")["score"]
+    assert "urgencia" in result["recommended_strategy"].lower() or "rapida" in result["recommended_strategy"].lower()
 
 
-# ── Caso 4: bloqueo procesal → reduce viabilidad ─────────────────────────────
+def test_bloqueo_procesal_reduce_viabilidad_y_confianza():
+    result_con_bloqueo = build_legal_reasoning(
+        _context(
+            {
+                "agreement_level": "full",
+                "blocking_factors": "medida cautelar vigente",
+            }
+        )
+    )
+    result_sin_bloqueo = build_legal_reasoning(_context({"agreement_level": "full"}))
+
+    consensual_con_bloqueo = _scenario(result_con_bloqueo, "consensuado")
+    consensual_sin_bloqueo = _scenario(result_sin_bloqueo, "consensuado")
+
+    assert consensual_con_bloqueo["viability"] == "baja"
+    assert consensual_con_bloqueo["score"] < consensual_sin_bloqueo["score"]
+    assert result_con_bloqueo["reasoning_confidence"] < result_sin_bloqueo["reasoning_confidence"]
+    assert sum(1 for s in result_con_bloqueo["scenarios"] if s["recommended"]) == 1
 
 
-def test_bloqueo_procesal_reduce_viabilidad():
+def test_conflicto_acuerdo_y_urgencia_resuelve_con_scoring_deterministico():
     result = build_legal_reasoning(
-        _context({
-            "agreement_level": "full",
-            "blocking_factors": "medida cautelar vigente",
-        })
+        _context(
+            {
+                "agreement_level": "full",
+                "urgency_level": "high",
+            }
+        )
     )
 
-    # El escenario consensuado debe tener viabilidad reducida por el bloqueo
-    consensual = next((s for s in result["scenarios"] if "consensuado" in s["name"].lower()), None)
-    assert consensual is not None
-    assert consensual["viability"] == "baja"
-
-    # La confianza debe ser menor que sin bloqueo
-    result_sin_bloqueo = build_legal_reasoning(_context({"agreement_level": "full"}))
-    assert result["reasoning_confidence"] < result_sin_bloqueo["reasoning_confidence"]
-
-    recommended_count = sum(1 for s in result["scenarios"] if s["recommended"])
-    assert recommended_count == 1
+    recommended = _recommended(result)
+    assert recommended["name"] == "Divorcio consensuado"
+    assert recommended["score"] > _scenario(result, "unilateral")["score"]
+    assert "acuerdo" in result["recommended_strategy"].lower()
+    assert "urgencia" in result["recommended_strategy"].lower() or "rapida" in result["recommended_strategy"].lower()
 
 
-# ── Invariantes generales ─────────────────────────────────────────────────────
+def test_conflicto_sin_acuerdo_y_bloqueo_sale_de_comparacion_real():
+    result = build_legal_reasoning(
+        _context(
+            {
+                "agreement_level": "none",
+                "blocking_factors": "incidente pendiente",
+            }
+        )
+    )
+
+    recommended = _recommended(result)
+    consensual = _scenario(result, "consensuado")
+    mediation = _scenario(result, "mediacion")
+
+    assert recommended["name"] == "Divorcio unilateral"
+    assert recommended["score"] > consensual["score"]
+    assert recommended["score"] > mediation["score"]
+    assert "bloqueo" in result["recommended_strategy"].lower()
 
 
-def test_siempre_al_menos_dos_escenarios():
+def test_exactamente_un_recommended_en_todas_las_areas_soportadas():
     for area in ("divorcio", "alimentos", "laboral", "civil"):
         result = build_legal_reasoning(_context({"legal_area": area}))
-        assert len(result["scenarios"]) >= 2, f"area={area} produjo menos de 2 escenarios"
+        assert len(result["scenarios"]) >= 2
+        assert sum(1 for s in result["scenarios"] if s["recommended"]) == 1, f"area={area}"
 
 
 def test_recommended_strategy_nunca_vacio():
-    for agreement in ("none", "full", "partial"):
-        result = build_legal_reasoning(_context({"agreement_level": agreement}))
-        assert result["recommended_strategy"].strip(), f"recommended_strategy vacío para agreement={agreement}"
+    for area in ("divorcio", "alimentos", "laboral", "civil"):
+        result = build_legal_reasoning(_context({"legal_area": area}))
+        assert result["recommended_strategy"].strip(), f"recommended_strategy vacio para area={area}"
 
 
-def test_format_legal_reasoning_as_text_produce_texto():
-    result = build_legal_reasoning(_context())
+def test_formatter_produce_texto_claro_y_menciona_estrategia_y_escenarios():
+    result = build_legal_reasoning(_context({"agreement_level": "full"}))
     text = format_legal_reasoning_as_text(result)
+
     assert isinstance(text, str)
-    assert len(text) > 50
-    assert "recomendado" in text.lower()
+    assert len(text) > 80
+    assert "Estrategia recomendada" in text
+    assert "Escenarios posibles" in text
+    assert "Desarrollo de la estrategia recomendada" in text
 
 
 def test_format_legal_reasoning_vacio_devuelve_cadena_vacia():
     assert format_legal_reasoning_as_text({}) == ""
     assert format_legal_reasoning_as_text(None) == ""  # type: ignore[arg-type]
+
+
+def test_mismo_input_produce_mismo_recommended():
+    context = _context(
+        {
+            "legal_area": "alimentos",
+            "urgency_level": "high",
+            "blocking_factors": "expediente conexo observado",
+        }
+    )
+
+    first = build_legal_reasoning(context)
+    second = build_legal_reasoning(context)
+
+    assert _recommended(first)["name"] == _recommended(second)["name"]
+    assert [scenario["score"] for scenario in first["scenarios"]] == [
+        scenario["score"] for scenario in second["scenarios"]
+    ]

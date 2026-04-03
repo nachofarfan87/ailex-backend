@@ -59,6 +59,7 @@ class LegalQueryRequest(BaseModel):
 class LegalQueryResponse(BaseModel):
     request_id: Optional[str] = None
     session_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     pipeline_version: Optional[str] = None
     orchestrator_version: Optional[str] = None
     query: str
@@ -146,7 +147,8 @@ def _extract_session_id(metadata: Dict[str, Any]) -> Optional[str]:
 def _extract_conversation_id(metadata: Dict[str, Any]) -> Optional[str]:
     if not isinstance(metadata, dict):
         return None
-    for key in ("conversation_id", "conversationId"):
+    # Accept both naming conventions — during beta, conversation_id == session_id
+    for key in ("conversation_id", "conversationId", "session_id", "sessionId"):
         value = metadata.get(key)
         if value is not None:
             normalized = str(value).strip()
@@ -725,6 +727,9 @@ def legal_query(
     response_dict["learning_log_id"] = learning_log_id
     response_dict["request_id"] = response_dict.get("request_id") or request_id
     response_dict["session_id"] = response_dict.get("session_id") or session_id
+    # During beta, conversation_id == session_id. Both are returned so the frontend
+    # and any consumer can use whichever key they prefer without breaking.
+    response_dict["conversation_id"] = response_dict.get("session_id")
     response_dict["orchestrator_version"] = PIPELINE_VERSION
     response_dict["excluded_from_learning"] = excluded_from_learning
     _safe_track_session_cycle(
