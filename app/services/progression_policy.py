@@ -508,16 +508,16 @@ def _build_user_summary(
     incremental_value: str,
 ) -> str:
     if selected_output_mode == "ejecucion":
-        return "La respuesta deja de quedarse en la orientacion inicial y pasa a pasos concretos para mover el caso."
+        return "Ahora pasamos a pasos concretos para mover el caso."
     if selected_output_mode == "estrategia":
-        return "La conversacion avanza desde la explicacion base hacia una decision estrategica mas concreta."
+        return "Ahora el foco pasa a una decision estrategica concreta."
     if selected_output_mode == "estructuracion":
         if semantic_repetition.get("detected"):
-            return "Para no repetir la misma orientacion, ahora la conversacion ordena el caso y apunta al dato que realmente destraba el siguiente paso."
-        return "La conversacion ya no esta en una apertura general: pasa a ordenar el caso con foco en lo que define el encuadre."
+            return "Para no repetir lo mismo, vamos directo al dato que destraba el siguiente paso."
+        return "Ya tengo la base. Ahora el foco es definir lo que da forma al encuadre concreto."
     if incremental_value == "ask_key_missing":
-        return "La respuesta pide un dato puntual que cambia la estrategia, no una aclaracion generica."
-    return "La respuesta aporta una primera orientacion util para empezar."
+        return "Necesito un dato puntual que cambia la estrategia."
+    return "Hay una primera orientacion concreta para empezar."
 
 
 def _build_professional_summary(
