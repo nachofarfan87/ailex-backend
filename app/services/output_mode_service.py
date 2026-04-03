@@ -8,8 +8,7 @@ from typing import Any
 from app.services.conversational import build_conversation_memory, build_conversational_response
 from app.services.conversational.conversational_quality import (
     apply_conversational_style,
-    build_contextual_opening,
-    simplify_question_text,
+    build_fact_aware_opening,
 )
 
 
@@ -546,6 +545,15 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
     summary = _to_user_text(summary_source) or _default_user_summary(case_domain, quick_start)
     what_this_means = _to_user_text(what_this_means_source) or summary
 
+    # D.1/D.2 — Contextual opening based on confirmed facts.
+    # Prepended to summary so the first thing the user reads reflects their case
+    # instead of generic LLM text. Uses only already-resolved known_facts —
+    # no regex, no text parsing here.
+    _fact_opening = build_fact_aware_opening(_as_dict(conversational.get("known_facts")))
+    if _fact_opening:
+        summary = f"{_fact_opening} {summary}".strip()
+        what_this_means = f"{_fact_opening} {what_this_means}".strip()
+
     if conversational.get("should_ask_first"):
         decisive_question = _clean_text(conversational.get("question"))
         guided_response = _clean_text(conversational.get("guided_response"))
@@ -818,10 +826,10 @@ def _fact_to_memory_snippet(field: str, value: Any) -> str:
 
 def _memory_lead(first_snippet: str, facts: dict[str, Any]) -> str:
     if first_snippet.startswith("divorcio "):
-        return "Perfecto. Entonces estamos frente a un "
+        return "En tu caso estamos ante un "
     if "rol_procesal" in facts:
-        return "Bien. Entonces veo que "
-    return "Perfecto. Entonces "
+        return "Con lo que ya me contaste: "
+    return "En tu caso: "
 
 
 def _join_memory_snippets(snippets: list[str]) -> str:
@@ -1691,10 +1699,10 @@ def _split_text_segments(text: str) -> list[str]:
 
 def _default_user_summary(case_domain: str, quick_start: str) -> str:
     if quick_start:
-        return "Ya hay una orientacion inicial util para saber que hacer primero."
+        return "Con lo que ya tenemos, hay un camino concreto para avanzar."
     if case_domain:
-        return f"Se detecta una consulta vinculada con {_humanize_case_domain(case_domain)} y ya puede darse una orientacion inicial."
-    return "Hay una orientacion inicial disponible aunque falten algunos bloques del analisis."
+        return f"Tu consulta es sobre {_humanize_case_domain(case_domain)} y ya hay una orientacion disponible."
+    return "Hay una orientacion disponible para empezar a ordenar el caso."
 
 
 def _humanize_case_domain(case_domain: str) -> str:

@@ -295,21 +295,21 @@ class ResponsePostprocessor:
 
         sections: list[str] = []
         sections.append(
-            "Con lo que contas, el caso queda asi:\n" +
-            "\n".join(f"- {item}" for item in (known_items or ["Ya hay una base inicial del caso, pero ahora conviene ordenarla mejor."]))
+            "Con lo que me contaste hasta ahora:\n" +
+            "\n".join(f"- {item}" for item in (known_items or ["Ya hay una base inicial del caso, pero conviene ordenarla mejor."]))
         )
         sections.append(
-            "Lo que falta para definir bien el encuadre:\n" +
-            "\n".join(f"- {item}" for item in (missing_items or ["No aparece un faltante critico adicional, pero todavia hay que cerrar el dato que cambia el encuadre."]))
+            "Lo que todavia falta definir:\n" +
+            "\n".join(f"- {item}" for item in (missing_items or ["Queda cerrar el dato que define el encuadre final."]))
         )
         if point_key:
-            sections.append(f"El punto clave a definir ahora es: {point_key}.")
+            sections.append(f"Ahora lo mas importante es: {point_key}.")
         elif progression_policy.get("missing_focus"):
             sections.append(
-                f"El punto clave a definir ahora es: {str((progression_policy.get('missing_focus') or [''])[0]).strip()}."
+                f"Ahora lo mas importante es: {str((progression_policy.get('missing_focus') or [''])[0]).strip()}."
             )
         if followup_question:
-            sections.append(f"Para seguir ordenando el caso, necesito un dato puntual: {followup_question}")
+            sections.append(f"Para seguir, necesito confirmar: {followup_question}")
         return "\n\n".join(section for section in sections if section.strip()).strip()
 
     def _render_strategy_response(

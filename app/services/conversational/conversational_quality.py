@@ -117,3 +117,42 @@ def _pick_index(pool: tuple[str, ...], key: str, turn: int) -> int:
     seed = f"{key}:{turn}"
     digest = hashlib.md5(seed.encode(), usedforsecurity=False).hexdigest()
     return int(digest, 16) % len(pool)
+
+
+# ── Fase D — Fact-aware contextual opening ────────────────────────────────────
+
+
+def build_fact_aware_opening(
+    known_facts: dict[str, Any] | None = None,
+) -> str:
+    """
+    Devuelve una frase corta que enmarca los hechos ya conocidos del caso.
+
+    Solo lee booleanos obvios de known_facts — sin regex, sin parseo de texto
+    libre, sin branching por dominio. La capa de análisis (pipeline) ya resolvió
+    qué sabe el sistema; este módulo solo lo enuncia en tono humano.
+
+    Retorna "" si no hay ningún hecho relevante confirmado, para no anteponer
+    texto vacío o genérico al summary.
+    """
+    facts: dict[str, Any] = dict(known_facts or {})
+
+    hay_hijos = facts.get("hay_hijos")
+    cese = facts.get("cese_convivencia")
+
+    if hay_hijos and _is_truthy(hay_hijos):
+        return "Por lo que me contás, hay hijos en común."
+
+    if cese and _is_truthy(cese):
+        return "Por lo que me contás, ya no están conviviendo."
+
+    return ""
+
+
+def _is_truthy(value: Any) -> bool:
+    """Devuelve False para valores falsy canónicos; True para el resto."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"false", "no", "0", "none", ""}
