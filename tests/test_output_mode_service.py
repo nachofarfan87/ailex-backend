@@ -110,6 +110,35 @@ def test_payload_minimo_no_falla_y_genera_fallbacks_utiles():
     assert professional_output["summary"]
 
 
+def test_user_output_usa_opening_especifico_con_facts_suficientes():
+    payload = _refined_response()
+    payload["reasoning"]["short_answer"] = "Con lo que me contaste, tengo suficiente para darte una orientación concreta."
+    payload["facts"] = {
+        "tema_divorcio": "inferred",
+        "hay_hijos": True,
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    summary = result["output_modes"]["user"]["summary"]
+
+    assert "podes avanzar con el divorcio" in summary.lower()
+    assert "hijos" in summary.lower()
+    assert "tengo suficiente para darte una orientación concreta" in summary.lower()
+
+
+def test_user_output_sin_facts_mantiene_fallback():
+    payload = _refined_response()
+    payload["reasoning"] = {}
+    payload["case_strategy"]["strategic_narrative"] = ""
+    payload["response_text"] = ""
+    payload["facts"] = {}
+
+    result = output_mode_service.build_dual_output(payload)
+    summary = result["output_modes"]["user"]["summary"]
+
+    assert summary == "Con lo que ya tenemos, hay un camino concreto para avanzar."
+
+
 def test_payload_sin_normative_reasoning_deja_normative_focus_vacio():
     payload = _refined_response()
     payload.pop("normative_reasoning")

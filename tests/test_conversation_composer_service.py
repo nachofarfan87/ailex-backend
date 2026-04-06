@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.conversation_composer_service import (
+    build_body_bridge,
     build_question_intro,
     compose,
     detect_turn_type,
@@ -209,8 +210,24 @@ def test_trim_body_medium_keeps_max_2_content_plus_question():
     result = trim_body_for_strength(body, "medium", "clarification")
     assert question in result
     assert para1 in result
-    assert para2 in result
+    assert para2 not in result
     assert para3 not in result
+
+
+def test_trim_body_medium_clarification_keeps_only_one_content_para():
+    para1 = "Parrafo de contenido uno, informacion juridica relevante."
+    para2 = "Parrafo de contenido dos, mas informacion juridica relevante."
+    question = "¿Tiene ingresos documentados el otro progenitor?"
+    body = f"{para1}\n\n{para2}\n\n{question}"
+    result = trim_body_for_strength(
+        body,
+        "medium",
+        "clarification",
+        output_mode="estructuracion",
+    )
+    assert para1 in result
+    assert para2 not in result
+    assert question in result
 
 
 def test_trim_body_high_does_not_trim():
@@ -274,6 +291,16 @@ def test_build_question_intro_empty_when_no_dominant_key():
     assert intro == ""
 
 
+def test_build_body_bridge_aparece_en_followup_con_contexto():
+    bridge = build_body_bridge(
+        "guided_followup",
+        _policy(action="hybrid"),
+        _state(turn_count=3, case_completeness="medium"),
+    )
+    assert bridge
+    assert "con eso" in bridge.lower() or "a partir de" in bridge.lower()
+
+
 # ─── Tests: compose — casos principales ──────────────────────────────────────
 
 
@@ -334,7 +361,7 @@ def test_compose_guidance_medium_balanced_output():
     composed = result["composed_response_text"]
     assert question in composed
     assert para1 in composed
-    assert para2 in composed
+    assert para2 not in composed
     # para3 debe haber sido recortado
     assert para3 not in composed
 
@@ -385,6 +412,40 @@ def test_compose_integrates_question_intro_as_bridge():
     intro_pos = composed.index(result["question_intro"])
     question_pos = composed.index("?")
     assert intro_pos < question_pos
+
+
+def test_compose_agrega_body_bridge_entre_apertura_y_contenido():
+    response = f"{_LEGAL_CONTENT_PARA}\n\n{_QUESTION_PARA}"
+    result = compose(
+        conversation_state=_state(turn_count=3, known_fact_count=2, case_completeness="medium"),
+        dialogue_policy=_policy(
+            action="hybrid",
+            guidance_strength="medium",
+            dominant_missing_purpose="quantify",
+        ),
+        response_text=response,
+    )
+    composed = result["composed_response_text"]
+    assert result["body_bridge"]
+    assert result["body_bridge"] in composed
+    assert composed.index(result["body_bridge"]) < composed.index(_LEGAL_CONTENT_PARA)
+
+
+def test_compose_execution_question_stays_light_before_followup():
+    para1 = "Primero conviene reunir la documentacion minima para que el paso siguiente no salga incompleto."
+    para2 = "Tambien puede servir ordenar gastos y recibos para sostener mejor el reclamo."
+    question = "¿Tenes ya los recibos o comprobantes principales?"
+    response = f"{para1}\n\n{para2}\n\n{question}"
+    result = compose(
+        conversation_state=_state(turn_count=3, known_fact_count=3, case_completeness="high"),
+        dialogue_policy=_policy(action="hybrid", guidance_strength="medium", dominant_missing_purpose="enable"),
+        response_text=response,
+        pipeline_payload={"output_mode": "ejecucion"},
+    )
+    composed = result["composed_response_text"]
+    assert para1 in composed
+    assert para2 not in composed
+    assert question in composed
 
 
 # Caso adicional: con solo un párrafo no recorta orientation (protección)

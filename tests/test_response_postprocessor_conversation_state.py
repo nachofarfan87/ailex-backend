@@ -257,8 +257,9 @@ def test_pipeline_evita_loop_de_orientacion_inicial_y_avanza_output_mode(db_sess
     assert second_output.api_payload["progression_policy"]["output_mode"] == "estructuracion"
     assert second_output.api_payload["output_modes"]["user"]["title"] == "Estructuracion del caso de alimentos"
     assert second_output.api_payload["conversation_state"]["progression_stage"] == "structuring_case"
-    assert "Con lo que contas, el caso queda asi:" in second_output.response_text
-    assert "Lo que falta para definir bien el encuadre:" in second_output.response_text
+    assert "el caso ya se puede ordenar mejor" in second_output.response_text.lower()
+    assert "con lo que me contaste hasta ahora:" in second_output.response_text.lower()
+    assert "para seguir sin cerrar esto en falso" in second_output.response_text.lower()
     assert first_output.response_text != second_output.response_text
 
 
@@ -299,8 +300,10 @@ def test_estructuracion_lista_hechos_y_no_repite_explicacion_basica(db_session, 
         db=db_session,
     )
 
-    assert "Con lo que contas, el caso queda asi:" in final_output.response_text
-    assert "Lo que falta para definir bien el encuadre:" in final_output.response_text
+    assert "el caso ya se puede ordenar mejor" in final_output.response_text.lower()
+    assert "con lo que me contaste hasta ahora:" in final_output.response_text.lower()
+    assert "lo que todavia falta definir" in final_output.response_text.lower()
+    assert "para seguir sin cerrar esto en falso" in final_output.response_text.lower()
     assert "es un derecho" not in final_output.response_text.lower()
 
 
@@ -350,10 +353,12 @@ def test_estrategia_compara_opciones_y_no_contiene_explicacion_basica(db_session
         db=db_session,
     )
 
-    assert "En este caso, lo mas conveniente es:" in final_output.response_text
-    assert "La accion prioritaria ahora es:" in final_output.response_text
-    assert "Otra opcion seria" in final_output.response_text
+    assert "lo que mas te conviene hoy es:" in final_output.response_text.lower() or "el mejor camino hoy es:" in final_output.response_text.lower()
+    assert "esto pesa mas porque" in final_output.response_text.lower() or "la razon principal es que" in final_output.response_text.lower()
+    assert "el paso que priorizaria ahora es:" in final_output.response_text.lower() or "si tuviera que ordenar el siguiente movimiento" in final_output.response_text.lower()
+    assert "la otra via existe, pero hoy queda mas atras:" in final_output.response_text.lower() or "como alternativa se puede pensar esta via, pero hoy queda en segundo plano:" in final_output.response_text.lower()
     assert "porque" in final_output.response_text
+    assert "para cerrar esta estrategia sin dejar cabos sueltos" in final_output.response_text.lower() or "el dato que me falta para terminar de cerrarla bien es este" in final_output.response_text.lower()
     assert "es un derecho" not in final_output.response_text.lower()
     assert "strategic_decision" in final_output.api_payload
     assert final_output.api_payload["strategic_decision"]["recommended_path"]
@@ -401,9 +406,9 @@ def test_estrategia_siempre_prioriza_una_opcion_concreta(db_session, monkeypatch
         db=db_session,
     )
 
-    assert "En este caso, lo mas conveniente es:" in final_output.response_text
+    assert "lo que mas te conviene hoy es:" in final_output.response_text.lower() or "el mejor camino hoy es:" in final_output.response_text.lower()
     assert "divorcio unilateral" in final_output.response_text.lower()
-    assert "Otra opcion seria" in final_output.response_text
+    assert "la otra via existe, pero hoy queda mas atras:" in final_output.response_text.lower() or "como alternativa se puede pensar esta via, pero hoy queda en segundo plano:" in final_output.response_text.lower()
     assert "manual" not in final_output.response_text.lower()
 
 

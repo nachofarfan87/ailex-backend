@@ -175,6 +175,76 @@ def test_postprocessor_uses_unknown_pipeline_version_when_missing():
     assert final_output.api_payload["pipeline_version"] == "unknown"
 
 
+def test_followup_question_not_forced_in_strategy_when_action_is_advise():
+    processor = ResponsePostprocessor()
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "dialogue_policy": {
+                "action": "advise",
+                "dominant_missing_purpose": "quantify",
+                "dominant_missing_importance": "core",
+            },
+            "progression_policy": {"missing_focus": ["ingresos del otro progenitor"]},
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": False,
+                    "case_completeness": "high",
+                }
+            },
+        },
+        {"execution_output": {"followup_question": "¿Cuanto gana el otro progenitor?"}},
+        output_mode="estrategia",
+    )
+
+    assert question == ""
+
+
+def test_followup_question_not_forced_in_execution_for_non_blocking_quantify():
+    processor = ResponsePostprocessor()
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "dialogue_policy": {
+                "action": "hybrid",
+                "dominant_missing_purpose": "quantify",
+                "dominant_missing_importance": "secondary",
+            },
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": False,
+                    "case_completeness": "high",
+                }
+            },
+        },
+        {"execution_output": {"followup_question": "¿Cuanto gana el otro progenitor?"}},
+        output_mode="ejecucion",
+    )
+
+    assert question == ""
+
+
+def test_followup_question_kept_in_execution_when_it_unblocks_next_step():
+    processor = ResponsePostprocessor()
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "dialogue_policy": {
+                "action": "hybrid",
+                "dominant_missing_purpose": "enable",
+                "dominant_missing_importance": "core",
+            },
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": False,
+                    "case_completeness": "medium",
+                }
+            },
+        },
+        {"execution_output": {"followup_question": "¿Tenes la partida de nacimiento a mano?"}},
+        output_mode="ejecucion",
+    )
+
+    assert "partida de nacimiento" in question.lower()
+
+
 def test_postprocessor_coerces_invalid_documents_considered_to_zero():
     processor = ResponsePostprocessor()
     final_output = processor.postprocess(

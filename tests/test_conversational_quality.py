@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.conversational.conversational_quality import (
     apply_conversational_style,
+    build_fact_aware_opening,
     build_contextual_opening,
     simplify_question_text,
 )
@@ -181,3 +182,51 @@ def test_existing_response_structure_preserved():
 
     styled = apply_conversational_style("anything", {}, slot_key="convivencia")
     assert isinstance(styled, str)
+
+
+def test_fact_aware_opening_divorcio_alimentos_hijos():
+    opening = build_fact_aware_opening(
+        {
+            "tema_divorcio": "inferred",
+            "tema_alimentos": "inferred",
+            "hay_hijos": True,
+        }
+    )
+
+    lowered = opening.lower()
+    assert "divorcio" in lowered
+    assert "alimentos" in lowered
+    assert "hijos" in lowered
+
+
+def test_fact_aware_opening_divorcio_hijos_sin_alimentos():
+    opening = build_fact_aware_opening(
+        {
+            "tema_divorcio": True,
+            "hay_hijos": "si",
+            "tema_alimentos": False,
+        }
+    )
+
+    lowered = opening.lower()
+    assert "divorcio" in lowered
+    assert "hijos" in lowered
+    assert "alimentos" not in lowered
+
+
+def test_fact_aware_opening_alimentos_hijos():
+    opening = build_fact_aware_opening(
+        {
+            "tema_alimentos": "inferred",
+            "hay_hijos": "true",
+        }
+    )
+
+    lowered = opening.lower()
+    assert "alimentos" in lowered
+    assert "hijos" in lowered
+
+
+def test_fact_aware_opening_sin_facts_devuelve_vacio():
+    assert build_fact_aware_opening({}) == ""
+    assert build_fact_aware_opening(None) == ""

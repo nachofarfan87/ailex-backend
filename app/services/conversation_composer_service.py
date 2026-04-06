@@ -100,6 +100,25 @@ _LEAD: dict[str, tuple[str, str]] = {
     ),
 }
 
+_BODY_BRIDGE: dict[str, tuple[str, str]] = {
+    "clarification": (
+        "Con eso, lo que ya aparece claro es esto:",
+        "Con ese contexto, hay algo que ya se puede ordenar mejor:",
+    ),
+    "guided_followup": (
+        "Con eso, lo que conviene tener en cuenta ahora es esto:",
+        "A partir de lo que ya sabemos, el cuadro se ordena asi:",
+    ),
+    "partial_closure": (
+        "Con eso, el panorama ya queda bastante claro:",
+        "A esta altura, el caso ya se deja encuadrar asi:",
+    ),
+    "followup": (
+        "Con eso, lo que conviene mirar ahora es esto:",
+        "Con lo que ya tenemos, el siguiente encuadre seria este:",
+    ),
+}
+
 
 # ─── Helpers de memory service (lazy imports para resiliencia) ────────────────
 
@@ -241,6 +260,52 @@ def _is_useful_content_para(paragraph: str) -> bool:
     )
 
 
+def _resolve_output_mode(pipeline_payload: dict[str, Any] | None) -> str:
+    """Extrae output_mode efectivo sin acoplar el composer al llamador."""
+    payload = pipeline_payload or {}
+    progression_policy = payload.get("progression_policy") or {}
+    output_mode = str(
+        progression_policy.get("output_mode")
+        or payload.get("output_mode")
+        or "orientacion_inicial"
+    ).strip()
+    return output_mode or "orientacion_inicial"
+
+
+def _resolve_medium_content_limit(
+    *,
+    turn_type: str,
+    output_mode: str,
+    already_explained_orientation: bool,
+) -> int:
+    """Ajusta la densidad segun tipo de turno y output_mode."""
+    if turn_type == "clarification":
+        return 1
+    if output_mode == "ejecucion":
+        return 1
+    if already_explained_orientation:
+        return _MAX_CONTENT_PARAS_MEDIUM_EXPLAINED
+    return _MAX_CONTENT_PARAS_MEDIUM
+
+
+def _trim_content_before_question(
+    *,
+    content_paras: list[str],
+    turn_type: str,
+    output_mode: str,
+) -> list[str]:
+    """Reduce friccion antes de una pregunta sin volver seca la respuesta."""
+    if not content_paras:
+        return []
+    if turn_type == "clarification":
+        return content_paras[:1]
+    if output_mode == "ejecucion":
+        return content_paras[:1]
+    if output_mode == "estrategia":
+        return content_paras[:2]
+    return content_paras
+
+
 def estimate_repetition(
     response_text: str,
     turn_count: int,
@@ -270,6 +335,7 @@ def trim_body_for_strength(
     guidance_strength: str,
     turn_type: str,
     already_explained_orientation: bool = False,
+    output_mode: str = "orientacion_inicial",
 ) -> str:
     """
     Recorta el body_text según guidance_strength para controlar la profundidad.
@@ -310,10 +376,10 @@ def trim_body_for_strength(
         return body_text
 
     # medium
-    max_content = (
-        _MAX_CONTENT_PARAS_MEDIUM_EXPLAINED
-        if already_explained_orientation
-        else _MAX_CONTENT_PARAS_MEDIUM
+    max_content = _resolve_medium_content_limit(
+        turn_type=turn_type,
+        output_mode=output_mode,
+        already_explained_orientation=already_explained_orientation,
     )
     kept_content = content_paras[:max_content]
     result_paras = kept_content + question_paras
@@ -327,6 +393,7 @@ def trim_body_for_strength(
 def build_question_intro(
     dialogue_policy: dict[str, Any] | None,
     conversation_state: dict[str, Any] | None,
+    output_mode: str = "orientacion_inicial",
 ) -> str:
     """
     Construye una frase introductoria para la pregunta dominante.
@@ -349,23 +416,59 @@ def build_question_intro(
     progress = (conversation_state or {}).get("progress_signals") or {}
     completeness = str(progress.get("case_completeness") or "low")
 
+    if output_mode == "ejecucion":
+        return "Para ajustar bien el paso siguiente, necesito saber:"
+    if output_mode == "estrategia" and dominant_purpose in {"enable", "identify"}:
+        return "Para cerrar bien esta decision, necesito saber:"
+
     if dominant_purpose == "enable":
-        return "Para saber si podemos avanzar, necesito que me confirmes un dato clave:"
+        return "Para seguir sin dejar este punto abierto, necesito que me confirmes un dato clave:"
     if dominant_purpose == "identify":
-        return "Para identificar correctamente la situación, necesito aclarar:"
+        return "Para terminar de ubicar bien la situación, necesito aclarar:"
     if dominant_purpose == "quantify":
         if completeness in ("medium", "high"):
             return (
                 "Ya tenemos el contexto principal. "
-                "Para ajustar la orientación, necesito saber:"
+                "Para afinar bien lo que sigue, necesito saber:"
             )
-        return "Para poder orientarte sobre montos y valores, necesito saber:"
+        return "Para poder orientarte mejor en este punto, necesito saber:"
     if dominant_purpose == "prove":
-        return "Para evaluar qué tan sólido está el caso en este punto, necesito entender:"
+        return "Para medir qué tan firme queda este punto, necesito entender:"
     if dominant_purpose == "situational":
-        return "Para completar el panorama, me ayudaría saber:"
+        return "Para completar bien el panorama, me ayudaría saber:"
 
-    return "Para orientarte mejor en este punto, necesito aclarar algo:"
+    return "Para seguir con una orientación útil, necesito aclarar algo:"
+
+
+def build_body_bridge(
+    turn_type: str,
+    dialogue_policy: dict[str, Any] | None,
+    conversation_state: dict[str, Any] | None,
+    conversation_memory: dict[str, Any] | None = None,
+    output_mode: str = "orientacion_inicial",
+) -> str:
+    """
+    Frase puente breve entre la apertura y el contenido principal.
+    Ayuda a que la respuesta avance con más continuidad.
+    """
+    if turn_type == "initial":
+        return ""
+
+    policy = dialogue_policy or {}
+    state = conversation_state or {}
+    action = str(policy.get("action") or "")
+    completeness = str((state.get("progress_signals") or {}).get("case_completeness") or "low")
+
+    if action not in {"ask", "hybrid", "advise"}:
+        return ""
+    if action == "ask" and completeness == "low" and turn_type == "clarification":
+        return ""
+    if output_mode == "ejecucion" and action in {"ask", "hybrid"}:
+        return ""
+
+    bridge_key = turn_type if turn_type in _BODY_BRIDGE else "followup"
+    vary = _should_vary_lead(conversation_memory, turn_type)
+    return _pick_bridge(bridge_key, vary)
 
 
 # ─── Composición interna ──────────────────────────────────────────────────────
@@ -391,6 +494,7 @@ def _strip_leading_orientation(response_text: str) -> tuple[str, bool]:
 def _resolve_composition_strategy(
     turn_type: str,
     repetition_reduced: bool,
+    body_bridge: str,
     question_intro: str,
     lead_text: str,
 ) -> str:
@@ -401,8 +505,12 @@ def _resolve_composition_strategy(
         return "dedup_with_question_bridge"
     if repetition_reduced:
         return "dedup_followup"
+    if body_bridge and question_intro:
+        return "followup_with_flow_glue"
     if question_intro and lead_text:
         return "followup_with_question_bridge"
+    if body_bridge and lead_text:
+        return "lead_with_body_bridge"
     if lead_text:
         return "lead_followup"
     return "passthrough"
@@ -443,10 +551,9 @@ def compose(
     policy = dialogue_policy or {}
     turn_count = int(state.get("turn_count") or 0)
 
-    del pipeline_payload  # reservado; no usado en esta versión
-
     # 8.3: extraer memoria conversacional del snapshot
     conversation_memory = state.get("conversation_memory") or {}
+    output_mode = _resolve_output_mode(pipeline_payload)
 
     # 8.3: determinar si orientación base ya fue explicada
     already_explained_orientation = _was_orientation_explained(conversation_memory)
@@ -473,11 +580,22 @@ def compose(
     # 4. Modular profundidad por guidance_strength (8.3: con flag de orientación explicada)
     guidance_strength = str(policy.get("guidance_strength") or "medium")
     body_text = trim_body_for_strength(
-        body_text, guidance_strength, turn_type, already_explained_orientation
+        body_text,
+        guidance_strength,
+        turn_type,
+        already_explained_orientation,
+        output_mode,
     )
 
-    # 5. Intro para la pregunta
-    question_intro = build_question_intro(policy, state)
+    # 5. Frases puente para el flujo del turno
+    body_bridge = build_body_bridge(
+        turn_type,
+        policy,
+        state,
+        conversation_memory,
+        output_mode,
+    )
+    question_intro = build_question_intro(policy, state, output_mode)
 
     # 6. Ensamblar texto compuesto
     parts: list[str] = []
@@ -491,19 +609,30 @@ def compose(
         body_paras = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
         question_paras = [p for p in body_paras if "?" in p]
         content_paras = [p for p in body_paras if "?" not in p]
+        content_paras = _trim_content_before_question(
+            content_paras=content_paras,
+            turn_type=turn_type,
+            output_mode=output_mode,
+        )
 
         if content_paras and question_paras:
+            if body_bridge:
+                parts.append(body_bridge)
             parts.extend(content_paras)
             parts.append(question_intro)
             parts.extend(question_paras)
         elif question_paras and not content_paras:
-            # lead_text ya actúa como conector; no duplicar con question_intro
+            parts.append(question_intro)
             parts.extend(question_paras)
         else:
             if body_text.strip():
+                if body_bridge:
+                    parts.append(body_bridge)
                 parts.append(body_text.strip())
     else:
         if body_text.strip():
+            if body_bridge:
+                parts.append(body_bridge)
             parts.append(body_text.strip())
 
     composed = "\n\n".join(p for p in parts if p.strip())
@@ -513,15 +642,21 @@ def compose(
         composed = response_text
 
     strategy = _resolve_composition_strategy(
-        turn_type, repetition_reduced, question_intro, lead_text
+        turn_type, repetition_reduced, body_bridge, question_intro, lead_text
     )
 
     return {
         "turn_type": turn_type,
         "lead_text": lead_text,
         "body_text": body_text,
+        "body_bridge": body_bridge,
         "question_intro": question_intro,
         "composed_response_text": composed,
         "repetition_reduced": repetition_reduced,
         "composition_strategy": strategy,
     }
+
+
+def _pick_bridge(key: str, vary: bool) -> str:
+    pair = _BODY_BRIDGE.get(key, ("", ""))
+    return pair[1] if vary else pair[0]

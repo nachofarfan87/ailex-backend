@@ -119,40 +119,55 @@ def _pick_index(pool: tuple[str, ...], key: str, turn: int) -> int:
     return int(digest, 16) % len(pool)
 
 
-# ── Fase D — Fact-aware contextual opening ────────────────────────────────────
-
-
 def build_fact_aware_opening(
     known_facts: dict[str, Any] | None = None,
 ) -> str:
     """
-    Devuelve una frase corta que enmarca los hechos ya conocidos del caso.
+    Devuelve una frase que nombra hechos ya resueltos, sin inferir nada nuevo.
 
-    Solo lee booleanos obvios de known_facts — sin regex, sin parseo de texto
-    libre, sin branching por dominio. La capa de análisis (pipeline) ya resolvió
-    qué sabe el sistema; este módulo solo lo enuncia en tono humano.
-
-    Retorna "" si no hay ningún hecho relevante confirmado, para no anteponer
-    texto vacío o genérico al summary.
+    Solo usa facts disponibles en el pipeline y admite "inferred" unicamente
+    para temas amplios como divorcio o alimentos.
     """
     facts: dict[str, Any] = dict(known_facts or {})
 
-    hay_hijos = facts.get("hay_hijos")
-    cese = facts.get("cese_convivencia")
+    tiene_divorcio = _is_present_fact(facts.get("tema_divorcio"), allow_inferred=True)
+    tiene_alimentos = _is_present_fact(facts.get("tema_alimentos"), allow_inferred=True)
+    tiene_hijos = _is_present_fact(facts.get("hay_hijos"))
 
-    if hay_hijos and _is_truthy(hay_hijos):
-        return "Por lo que me contás, hay hijos en común."
+    if tiene_divorcio and tiene_alimentos and tiene_hijos:
+        return (
+            "Con lo que me contaste, podes iniciar el divorcio y tambien reclamar "
+            "alimentos para tus hijos."
+        )
 
-    if cese and _is_truthy(cese):
-        return "Por lo que me contás, ya no están conviviendo."
+    if tiene_divorcio and tiene_hijos:
+        return (
+            "Con lo que me contaste, podes avanzar con el divorcio y tambien "
+            "ordenar lo relativo a tus hijos."
+        )
+
+    if tiene_alimentos and tiene_hijos:
+        return "Con lo que me contaste, ya hay base para reclamar alimentos para tus hijos."
 
     return ""
 
 
 def _is_truthy(value: Any) -> bool:
-    """Devuelve False para valores falsy canónicos; True para el resto."""
+    """Devuelve False para valores falsy canonicos; True para el resto."""
     if value is None:
         return False
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() not in {"false", "no", "0", "none", ""}
+
+
+def _is_present_fact(value: Any, *, allow_inferred: bool = False) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "si", "s", "sí"}:
+            return True
+        if allow_inferred and normalized == "inferred":
+            return True
+    return False

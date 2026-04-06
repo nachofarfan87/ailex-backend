@@ -542,15 +542,18 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         or []
     )
 
-    summary = _to_user_text(summary_source) or _default_user_summary(case_domain, quick_start)
+    known_facts = _as_dict(conversational.get("known_facts"))
+    summary = _to_user_text(summary_source) or _default_user_summary(
+        case_domain, quick_start, known_facts
+    )
     what_this_means = _to_user_text(what_this_means_source) or summary
 
     # D.1/D.2 — Contextual opening based on confirmed facts.
     # Prepended to summary so the first thing the user reads reflects their case
     # instead of generic LLM text. Uses only already-resolved known_facts —
     # no regex, no text parsing here.
-    _fact_opening = build_fact_aware_opening(_as_dict(conversational.get("known_facts")))
-    if _fact_opening:
+    _fact_opening = build_fact_aware_opening(known_facts)
+    if _fact_opening and _to_user_text(summary_source):
         summary = f"{_fact_opening} {summary}".strip()
         what_this_means = f"{_fact_opening} {what_this_means}".strip()
 
@@ -624,7 +627,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         )
     )
     if not message:
-        message = _default_user_summary(case_domain, _clean_text(response.get("quick_start")))
+        message = _default_user_summary(case_domain, _clean_text(response.get("quick_start")), known_facts)
     memory_phrase = _build_memory_phrase(known_facts)
     if memory_phrase:
         message = f"{memory_phrase} {message}".strip()
@@ -1697,7 +1700,14 @@ def _split_text_segments(text: str) -> list[str]:
     return segments
 
 
-def _default_user_summary(case_domain: str, quick_start: str) -> str:
+def _default_user_summary(
+    case_domain: str,
+    quick_start: str,
+    known_facts: dict[str, Any] | None = None,
+) -> str:
+    opening = build_fact_aware_opening(dict(known_facts or {}))
+    if opening:
+        return opening
     if quick_start:
         return "Con lo que ya tenemos, hay un camino concreto para avanzar."
     if case_domain:

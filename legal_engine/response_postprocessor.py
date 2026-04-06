@@ -291,15 +291,29 @@ class ResponsePostprocessor:
         known_items = self._select_known_case_facts(conversation_state)[:3]
         missing_items = self._select_missing_case_facts(conversation_state)[:3]
         point_key = self._resolve_point_key(dialogue_policy, conversation_state)
-        followup_question = self._resolve_followup_question(api_payload, execution_output)
+        followup_question = self._resolve_followup_question(
+            api_payload,
+            execution_output,
+            output_mode="estructuracion",
+        )
 
         sections: list[str] = []
+        sections.append(
+            self._pick_conversational_variant(
+                conversation_state=conversation_state,
+                key="structuring_open",
+                options=(
+                    "Con lo que me contaste hasta ahora, el caso ya se puede ordenar mejor.",
+                    "Con lo que ya sabemos, el caso se deja ordenar con bastante mas claridad.",
+                ),
+            )
+        )
         sections.append(
             "Con lo que me contaste hasta ahora:\n" +
             "\n".join(f"- {item}" for item in (known_items or ["Ya hay una base inicial del caso, pero conviene ordenarla mejor."]))
         )
         sections.append(
-            "Lo que todavia falta definir:\n" +
+            "Ahora lo que todavia falta definir para cerrar bien el encuadre es esto:\n" +
             "\n".join(f"- {item}" for item in (missing_items or ["Queda cerrar el dato que define el encuadre final."]))
         )
         if point_key:
@@ -309,7 +323,9 @@ class ResponsePostprocessor:
                 f"Ahora lo mas importante es: {str((progression_policy.get('missing_focus') or [''])[0]).strip()}."
             )
         if followup_question:
-            sections.append(f"Para seguir, necesito confirmar: {followup_question}")
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='structuring_followup', options=('Para seguir sin cerrar esto en falso, necesito confirmar:', 'Para avanzar con una orientacion mas firme, necesito confirmar:'))} {followup_question}"
+            )
         return "\n\n".join(section for section in sections if section.strip()).strip()
 
     def _render_strategy_response(
@@ -333,19 +349,35 @@ class ResponsePostprocessor:
         justification = str(strategic_decision.get("justification") or "").strip()
         alternative_path = self._strip_known_quick_start(str(strategic_decision.get("alternative_path") or "").strip())
         alternative_reason = str(strategic_decision.get("alternative_reason") or "").strip()
-        followup_question = self._resolve_followup_question(api_payload, execution_output)
+        followup_question = self._resolve_followup_question(
+            api_payload,
+            execution_output,
+            output_mode="estrategia",
+        )
+        normalized_justification = justification.rstrip(" .:")
+        normalized_alternative_reason = alternative_reason.rstrip(" .:")
 
         sections: list[str] = []
         if recommended_path:
-            sections.append(f"En este caso, lo mas conveniente es: {recommended_path}")
-        if priority_action:
-            sections.append(f"La accion prioritaria ahora es: {priority_action}")
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_open', options=('Lo que mas te conviene hoy es:', 'En este caso, el mejor camino hoy es:'))} {recommended_path}"
+            )
         if justification:
-            sections.append(f"Esto suele convenir porque {justification[0].lower() + justification[1:] if len(justification) > 1 else justification.lower()}.")
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_why', options=('Esto pesa mas porque', 'La razon principal es que'))} {normalized_justification[0].lower() + normalized_justification[1:] if len(normalized_justification) > 1 else normalized_justification.lower()}."
+            )
+        if priority_action:
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_action', options=('El paso que priorizaria ahora es:', 'Si tuviera que ordenar el siguiente movimiento, iria por esto:'))} {priority_action}"
+            )
         if alternative_path:
-            sections.append(f"Otra opcion seria {alternative_path}, pero suele ser menos conveniente porque {alternative_reason or 'normalmente deja mas puntos criticos abiertos antes de presentar'}.")
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_alternative', options=('La otra via existe, pero hoy queda mas atras:', 'Como alternativa se puede pensar esta via, pero hoy queda en segundo plano:'))} {alternative_path}. {normalized_alternative_reason or 'Normalmente deja mas puntos criticos abiertos antes de presentar'}."
+            )
         if followup_question:
-            sections.append(f"Antes de cerrar la estrategia, necesito confirmar esto: {followup_question}")
+            sections.append(
+                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_followup', options=('Para cerrar esta estrategia sin dejar cabos sueltos, necesito confirmar:', 'El dato que me falta para terminar de cerrarla bien es este:'))} {followup_question}"
+            )
         return "\n\n".join(section for section in sections if section.strip()).strip()
 
     def _render_execution_response(
@@ -360,7 +392,11 @@ class ResponsePostprocessor:
         where_to_go = self._dedupe_texts(list(execution_data.get("where_to_go") or []))
         requests = self._dedupe_texts(list(execution_data.get("what_to_request") or []))
         documents = self._dedupe_texts(list(execution_data.get("documents_needed") or []))
-        followup_question = self._resolve_followup_question(api_payload, execution_output)
+        followup_question = self._resolve_followup_question(
+            api_payload,
+            execution_output,
+            output_mode="ejecucion",
+        )
 
         if not actions:
             case_strategy = dict(pipeline_payload.get("case_strategy") or {})
@@ -432,17 +468,97 @@ class ResponsePostprocessor:
         self,
         api_payload: dict[str, Any],
         execution_output: dict[str, Any],
+        output_mode: str = "",
     ) -> str:
         execution_data = dict(execution_output.get("execution_output") or {})
         question = str(execution_data.get("followup_question") or "").strip()
-        if question:
-            return question
-        progression_policy = dict(api_payload.get("progression_policy") or {})
-        missing_focus = list(progression_policy.get("missing_focus") or [])
-        if missing_focus:
-            return f"Necesito precisar {str(missing_focus[0]).strip()}."
-        conversational = dict(api_payload.get("conversational") or {})
-        return str(conversational.get("question") or "").strip()
+        if not question:
+            progression_policy = dict(api_payload.get("progression_policy") or {})
+            missing_focus = list(progression_policy.get("missing_focus") or [])
+            if missing_focus:
+                question = f"Necesito precisar {str(missing_focus[0]).strip()}."
+            else:
+                conversational = dict(api_payload.get("conversational") or {})
+                question = str(conversational.get("question") or "").strip()
+
+        if not question:
+            return ""
+        if not self._should_include_followup_question(
+            api_payload=api_payload,
+            execution_output=execution_output,
+            output_mode=output_mode,
+            question=question,
+        ):
+            return ""
+        return question
+
+    def _should_include_followup_question(
+        self,
+        *,
+        api_payload: dict[str, Any],
+        execution_output: dict[str, Any],
+        output_mode: str,
+        question: str,
+    ) -> bool:
+        """
+        Decide si conviene terminar con follow-up.
+
+        Regla buscada: solo preguntar cuando mejora la siguiente decision o accion.
+        """
+        if not str(question or "").strip():
+            return False
+
+        dialogue_policy = dict(api_payload.get("dialogue_policy") or {})
+        action = str(dialogue_policy.get("action") or "").strip().lower()
+        if action not in {"ask", "hybrid"}:
+            return False
+
+        conversation_state = dict(api_payload.get("conversation_state") or {})
+        progress = dict(conversation_state.get("progress_signals") or {})
+        blocking_missing = bool(progress.get("blocking_missing"))
+        completeness = str(progress.get("case_completeness") or "low").strip().lower()
+        dominant_purpose = str(dialogue_policy.get("dominant_missing_purpose") or "").strip().lower()
+        dominant_importance = str(dialogue_policy.get("dominant_missing_importance") or "").strip().lower()
+
+        if blocking_missing:
+            return True
+        if output_mode == "ejecucion":
+            return dominant_purpose in {"enable", "identify"}
+        if output_mode == "estrategia":
+            return dominant_purpose in {"enable", "identify", "prove"} or (
+                dominant_importance == "core" and completeness != "high"
+            )
+        if output_mode == "estructuracion":
+            return action == "ask" or dominant_purpose in {"enable", "identify", "quantify"}
+
+        if execution_output.get("applies"):
+            return dominant_purpose in {"enable", "identify"}
+        return True
+
+    def _pick_conversational_variant(
+        self,
+        *,
+        conversation_state: dict[str, Any],
+        key: str,
+        options: tuple[str, ...],
+    ) -> str:
+        if not options:
+            return ""
+        if len(options) == 1:
+            return options[0]
+
+        turn_count = int(conversation_state.get("turn_count") or 0)
+        memory = dict(conversation_state.get("conversation_memory") or {})
+        if not memory and turn_count <= 2:
+            return options[0]
+
+        seed = (
+            turn_count
+            + len(key)
+            + len(str(memory.get("last_turn_type") or ""))
+            + len(str(memory.get("last_dialogue_action") or ""))
+        )
+        return options[seed % len(options)]
 
     def _render_known_fact(self, *, key: str, value: Any) -> str:
         clean_key = str(key or "").strip().replace("_", " ")
@@ -506,6 +622,10 @@ class ResponsePostprocessor:
                 conversation_state=conversation_state,
                 dialogue_policy=dialogue_policy,
                 response_text=response_text,
+                pipeline_payload={
+                    "output_mode": api_payload.get("output_mode"),
+                    "progression_policy": api_payload.get("progression_policy"),
+                },
             )
             if result:
                 api_payload["composer_output"] = result
