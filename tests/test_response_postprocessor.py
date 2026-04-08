@@ -468,6 +468,155 @@ def test_resolve_followup_question_no_fuerza_si_case_followup_false():
     assert question == ""
 
 
+def test_resolve_followup_question_anula_followup_por_readiness_alta():
+    processor = ResponsePostprocessor()
+
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "case_followup": {
+                "should_ask": True,
+                "question": "¿Podés precisar los ingresos del otro progenitor?",
+                "need_key": "hecho::ingresos_otro_progenitor",
+            },
+            "case_progress": {
+                "readiness_label": "high",
+                "critical_gaps": [],
+                "blocking_issues": [],
+                "next_step_type": "execute",
+            },
+            "strategy_composition_profile": {"allow_followup": True},
+        },
+        {"execution_output": {}},
+        output_mode="estrategia",
+    )
+
+    assert question == ""
+
+
+def test_resolve_followup_question_filtra_case_followup_de_refinement_si_ya_hay_paso_claro():
+    processor = ResponsePostprocessor()
+
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "case_followup": {
+                "should_ask": True,
+                "question": "¿Cuanto gana la otra parte?",
+                "need_key": "hecho::ingresos_otro_progenitor",
+                "priority": "high",
+                "source": "case_need",
+            },
+            "dialogue_policy": {
+                "action": "hybrid",
+                "dominant_missing_purpose": "quantify",
+                "dominant_missing_importance": "secondary",
+            },
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": False,
+                    "case_completeness": "high",
+                }
+            },
+            "case_progress": {
+                "readiness_label": "high",
+                "critical_gaps": [],
+                "blocking_issues": [],
+                "next_step_type": "execute",
+                "progress_status": "ready",
+            },
+            "strategy_composition_profile": {
+                "allow_followup": True,
+            },
+        },
+        {"execution_output": {"what_to_do_now": ["Presentar escrito inicial."]}},
+        output_mode="ejecucion",
+    )
+
+    assert question == ""
+
+
+def test_resolve_followup_question_anula_followup_por_strategy_mode_de_cierre():
+    processor = ResponsePostprocessor()
+
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "case_followup": {
+                "should_ask": True,
+                "question": "¿Necesito confirmar algo mas?",
+                "need_key": "hecho::aportes_actuales",
+            },
+            "smart_strategy": {"strategy_mode": "close_without_more_questions"},
+            "strategy_composition_profile": {"allow_followup": True},
+        },
+        {"execution_output": {}},
+        output_mode="estrategia",
+    )
+
+    assert question == ""
+
+
+def test_followup_integrity_arbitration_suprime_slot_ya_resuelto_por_alias(monkeypatch):
+    processor = ResponsePostprocessor()
+    api_payload = {
+        "case_followup": {
+            "should_ask": True,
+            "question": "¿El otro progenitor está aportando algo actualmente?",
+            "need_key": "hecho::pagos_actuales",
+            "reason": "Falta cerrar si hay aportes actuales.",
+        },
+        "case_memory": {
+            "facts": {
+                "aportes_actuales": {"value": False, "source": "confirmed", "confidence": 1.0},
+            }
+        },
+        "conversation_state": {
+            "asked_questions": ["¿El otro padre o madre le pasa algo de plata actualmente?"],
+        },
+        "strategy_composition_profile": {"allow_followup": True},
+        "smart_strategy": {"strategy_mode": "clarify_critical"},
+        "case_progress": {"readiness_label": "medium", "critical_gaps": [{"key": "aportes_actuales"}]},
+    }
+
+    processor._apply_followup_integrity_arbitration(api_payload=api_payload)  # noqa: SLF001
+
+    assert api_payload["case_followup"]["should_ask"] is False
+    assert api_payload["case_followup"]["question"] == ""
+    assert api_payload["case_followup"]["canonical_slot"] == "aportes_actuales"
+    assert api_payload["case_followup"]["integrity_reason"] == "slot_already_resolved"
+
+
+def test_attach_professional_judgment_agrega_capa_sin_romper_payload():
+    processor = ResponsePostprocessor()
+    api_payload = {
+        "quick_start": "Presentar el reclamo principal.",
+        "case_progress": {
+            "readiness_label": "high",
+            "progress_status": "ready",
+            "next_step_type": "execute",
+            "critical_gaps": [],
+            "important_gaps": [],
+            "blocking_issues": [],
+            "contradictions": [],
+        },
+        "case_workspace": {
+            "action_plan": [
+                {
+                    "title": "Presentar el reclamo principal.",
+                    "why_it_matters": "Ya hay base suficiente para avanzar.",
+                }
+            ]
+        },
+        "smart_strategy": {"strategy_mode": "action_first"},
+    }
+
+    processor._attach_professional_judgment(api_payload=api_payload)  # noqa: SLF001
+
+    judgment = api_payload["professional_judgment"]
+    assert judgment["applies"] is True
+    assert judgment["recommendation_stance"] == "firm_action"
+    assert "Presentar el reclamo principal" in judgment["best_next_move"]
+    assert api_payload["smart_strategy"]["strategy_mode"] == "action_first"
+
+
 def test_resolve_followup_question_mantiene_fallback_sin_case_followup():
     processor = ResponsePostprocessor()
 

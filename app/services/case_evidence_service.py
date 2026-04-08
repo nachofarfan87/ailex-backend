@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.conversation_integrity_service import canonicalize_concept_key
+
 
 def build_case_evidence_checklist(
     *,
@@ -381,15 +383,7 @@ def _semantic_group_key(item: dict[str, Any]) -> str:
         str(item.get(field) or "").strip().casefold()
         for field in ("label", "description", "reason")
     )
-    if not text:
-        return ""
-    if any(token in text for token in ("partida de nacimiento", "vinculo filial", "grupo familiar")):
-        return "family_link_birth"
-    if any(token in text for token in ("ingresos del progenitor", "ingresos del obligado", "recibos de sueldo", "indicios de ingresos")):
-        return "income_support"
-    if any(token in text for token in ("gastos del hijo", "detalle de gastos", "comprobantes de gastos")):
-        return "child_expenses"
-    return ""
+    return canonicalize_concept_key(text)
 
 
 def _item_is_inapplicable(item: dict[str, Any], *, context: dict[str, Any]) -> bool:

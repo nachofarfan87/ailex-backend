@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.case_followup_service import build_case_followup
+from app.services.conversation_integrity_service import build_integrity_state
 
 
 def _snapshot(
@@ -330,3 +331,49 @@ def test_no_repite_followup_si_el_fact_ya_esta_resuelto_en_case_memory():
 
     assert followup["should_ask"] is False
     assert followup["question"] == ""
+
+
+def test_no_repite_followup_equivalente_por_alias_semantico():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::pagos_actuales",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "¿El otro progenitor esta aportando algo actualmente?",
+                },
+            ]
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "conversation_state": {
+                "progress_signals": {
+                    "case_completeness": "medium",
+                    "blocking_missing": True,
+                },
+                "asked_questions": ["¿El otro padre o madre le pasa algo de plata actualmente?"],
+            },
+            "case_memory": {
+                "facts": {
+                    "aportes_actuales": {"value": False, "source": "confirmed", "confidence": 1.0},
+                }
+            },
+        },
+        "estructuracion",
+    )
+
+    assert followup["should_ask"] is False
+    assert followup["question"] == ""
+
+
+def test_asked_slot_solo_no_cuenta_como_resuelto():
+    integrity = build_integrity_state(
+        conversation_state={
+            "asked_questions": ["¿El otro progenitor está aportando algo actualmente?"],
+        },
+        case_memory={},
+    )
+
+    assert integrity["slot_statuses"]["aportes_actuales"] == "unknown"
+    assert "aportes_actuales" not in integrity["blocked_slots"]

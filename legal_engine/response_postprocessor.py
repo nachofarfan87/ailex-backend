@@ -20,7 +20,12 @@ from app.services.case_progress_service import (
 from app.services.case_progress_narrative_service import case_progress_narrative_service
 from app.services.case_summary_service import case_summary_service
 from app.services.case_workspace_service import build_case_workspace
+from app.services.professional_judgment_service import build_professional_judgment
 from app.services.smart_strategy_service import resolve_smart_strategy
+from app.services.conversation_integrity_service import (
+    build_integrity_state,
+    should_allow_followup,
+)
 from app.services.strategy_composition_service import resolve_strategy_composition_profile
 from app.services.strategy_language_service import resolve_strategy_language_profile
 from app.services.response_composition_service import resolve_response_composition
@@ -144,6 +149,7 @@ class ResponsePostprocessor:
         self._attach_case_confidence(api_payload=api_payload)
         self._attach_smart_strategy(api_payload=api_payload)
         self._attach_strategy_composition_profile(api_payload=api_payload)
+        self._apply_followup_integrity_arbitration(api_payload=api_payload)
         # FASE 12.7 — consistency policy antes que language profile para pasar stable_bucket
         self._attach_consistency_policy(api_payload=api_payload)
         self._attach_strategy_language_profile(api_payload=api_payload)
@@ -155,6 +161,7 @@ class ResponsePostprocessor:
         )
         self._attach_case_workspace(api_payload=api_payload)
         self._attach_case_progress_narrative(api_payload=api_payload)
+        self._attach_professional_judgment(api_payload=api_payload)
         response_text = self._transform_response_by_output_mode(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
@@ -447,7 +454,22 @@ class ResponsePostprocessor:
             if not bool(profile.get("allow_followup", True)):
                 return ""
             if bool(case_followup.get("should_ask")):
-                return str(case_followup.get("question") or "").strip()
+                decision = should_allow_followup(
+                    api_payload=api_payload,
+                    question=str(case_followup.get("question") or "").strip(),
+                    need_key=str(case_followup.get("need_key") or "").strip(),
+                )
+                if not decision.get("should_allow_followup"):
+                    return ""
+                case_followup_question = str(case_followup.get("question") or "").strip()
+                if not self._should_include_followup_question(
+                    api_payload=api_payload,
+                    execution_output=execution_output,
+                    output_mode=output_mode,
+                    question=case_followup_question,
+                ):
+                    return ""
+                return case_followup_question
             return ""
 
         execution_data = dict(execution_output.get("execution_output") or {})
@@ -462,6 +484,12 @@ class ResponsePostprocessor:
                 question = str(conversational.get("question") or "").strip()
 
         if not question:
+            return ""
+        decision = should_allow_followup(
+            api_payload=api_payload,
+            question=question,
+        )
+        if not decision.get("should_allow_followup"):
             return ""
         if not self._should_include_followup_question(
             api_payload=api_payload,
@@ -488,9 +516,13 @@ class ResponsePostprocessor:
         if not str(question or "").strip():
             return False
 
+        case_followup = dict(api_payload.get("case_followup") or {})
+        has_explicit_case_followup = bool(case_followup.get("should_ask")) and bool(
+            str(case_followup.get("question") or "").strip()
+        )
         dialogue_policy = dict(api_payload.get("dialogue_policy") or {})
         action = str(dialogue_policy.get("action") or "").strip().lower()
-        if action not in {"ask", "hybrid"}:
+        if action not in {"ask", "hybrid"} and not has_explicit_case_followup:
             return False
 
         conversation_state = dict(api_payload.get("conversation_state") or {})
@@ -504,6 +536,13 @@ class ResponsePostprocessor:
         readiness_label = str(case_progress.get("readiness_label") or "").strip().lower()
         has_blockers = bool(list(case_progress.get("blocking_issues") or []))
         critical_gap_count = len(list(case_progress.get("critical_gaps") or []))
+
+        if has_explicit_case_followup and not dialogue_policy:
+            if next_step_type == "execute" or (
+                readiness_label == "high" and not has_blockers and critical_gap_count == 0
+            ):
+                return False
+            return True
 
         if completeness in {"high", "very_high"} and not blocking_missing:
             return False
@@ -1493,6 +1532,18 @@ class ResponsePostprocessor:
         except Exception:
             logger.exception("No se pudo construir case_progress_narrative.")
 
+    def _attach_professional_judgment(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        try:
+            api_payload["professional_judgment"] = build_professional_judgment(
+                api_payload=api_payload,
+            )
+        except Exception:
+            logger.exception("No se pudo construir professional_judgment.")
+
     def _attach_case_confidence(
         self,
         *,
@@ -1629,6 +1680,52 @@ class ResponsePostprocessor:
             )
         except Exception:
             logger.exception("No se pudo construir strategy_composition_profile.")
+
+    def _apply_followup_integrity_arbitration(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        followup = dict(api_payload.get("case_followup") or {})
+        if not followup:
+            api_payload["conversation_integrity"] = build_integrity_state(
+                conversation_state=dict(api_payload.get("conversation_state") or {}),
+                case_memory=dict(api_payload.get("case_memory") or {}),
+            )
+            return
+
+        try:
+            decision = should_allow_followup(
+                api_payload=api_payload,
+                question=str(followup.get("question") or "").strip(),
+                need_key=str(followup.get("need_key") or "").strip(),
+            )
+            api_payload["conversation_integrity"] = dict(decision.get("integrity_state") or {})
+            followup["canonical_slot"] = str(decision.get("canonical_slot") or "")
+            followup["integrity_reason"] = str(decision.get("reason") or "")
+            followup["integrity_suppressed"] = False
+
+            if not decision.get("should_allow_followup"):
+                followup["should_ask"] = False
+                followup["question"] = ""
+                followup["reason"] = self._integrity_reason_message(str(decision.get("reason") or ""))
+                followup["integrity_suppressed"] = True
+
+            api_payload["case_followup"] = followup
+        except Exception:
+            logger.exception("No se pudo aplicar la capa de integridad conversacional.")
+
+    @staticmethod
+    def _integrity_reason_message(reason: str) -> str:
+        messages = {
+            "strategy_profile_disallows_followup": "La estrategia final indica cerrar este turno sin mÃ¡s preguntas.",
+            "strategy_mode_closes_without_questions": "La estrategia dominante permite avanzar sin un follow-up final.",
+            "case_followup_already_closed": "Hay suficiente informaciÃ³n para avanzar sin follow-up.",
+            "readiness_allows_advancing_without_followup": "Hay suficiente informaciÃ³n para avanzar sin follow-up.",
+            "slot_already_resolved": "Ese punto ya quedÃ³ resuelto en esta conversaciÃ³n.",
+            "slot_already_answered_partially": "Ese punto ya fue respondido en esta conversaciÃ³n y no conviene repetir la misma pregunta.",
+        }
+        return messages.get(reason, "Hay suficiente informaciÃ³n para avanzar sin follow-up.")
 
     def _attach_strategy_language_profile(
         self,

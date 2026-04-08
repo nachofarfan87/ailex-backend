@@ -5,6 +5,7 @@ from typing import Any
 
 from app.services.case_action_plan_service import build_case_action_plan
 from app.services.case_evidence_service import build_case_evidence_checklist
+from app.services.conversation_integrity_service import canonicalize_concept_key
 from app.services.utc import utc_now
 
 WORKSPACE_VERSION = "case_workspace_v1"
@@ -89,7 +90,7 @@ def build_case_workspace(
         ),
         "last_updated_at": f"{utc_now().isoformat()}Z",
     }
-    return workspace
+    return _apply_global_workspace_dedup(workspace)
 
 
 def resolve_case_status(
@@ -726,3 +727,62 @@ def _safe_int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _apply_global_workspace_dedup(workspace: dict[str, Any]) -> dict[str, Any]:
+    seen_concepts: set[str] = set()
+    deduped = dict(workspace)
+
+    action_plan = [
+        item for item in list(deduped.get("action_plan") or [])
+        if _should_keep_workspace_item(item, seen_concepts, fields=("title", "description"))
+    ]
+    deduped["action_plan"] = action_plan
+
+    evidence = dict(deduped.get("evidence_checklist") or {})
+    deduped["evidence_checklist"] = {
+        "critical": [
+            item for item in list(evidence.get("critical") or [])
+            if _should_keep_workspace_item(item, seen_concepts, fields=("label", "description", "reason"))
+        ],
+        "recommended": [
+            item for item in list(evidence.get("recommended") or [])
+            if _should_keep_workspace_item(item, seen_concepts, fields=("label", "description", "reason"))
+        ],
+        "optional": [
+            item for item in list(evidence.get("optional") or [])
+            if _should_keep_workspace_item(item, seen_concepts, fields=("label", "description", "reason"))
+        ],
+    }
+
+    deduped["facts_missing"] = [
+        item for item in list(deduped.get("facts_missing") or [])
+        if _should_keep_workspace_item(item, seen_concepts, fields=("label", "key"))
+    ]
+
+    handoff = dict(deduped.get("professional_handoff") or {})
+    handoff["open_items"] = [
+        item for item in list(handoff.get("open_items") or [])
+        if _should_keep_workspace_item(item, seen_concepts, fields=())
+    ]
+    deduped["professional_handoff"] = handoff
+    return deduped
+
+
+def _should_keep_workspace_item(
+    item: Any,
+    seen_concepts: set[str],
+    *,
+    fields: tuple[str, ...],
+) -> bool:
+    if isinstance(item, dict):
+        text = " ".join(str(item.get(field) or "").strip() for field in fields if str(item.get(field) or "").strip())
+    else:
+        text = str(item or "").strip()
+    concept_key = canonicalize_concept_key(text)
+    if not concept_key:
+        return True
+    if concept_key in seen_concepts:
+        return False
+    seen_concepts.add(concept_key)
+    return True

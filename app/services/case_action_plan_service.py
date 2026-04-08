@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.conversation_integrity_service import canonicalize_concept_key
+
 
 def build_case_action_plan(
     *,
@@ -424,11 +426,13 @@ def _dedupe_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     index_by_key: dict[str, int] = {}
     for step in steps:
         normalized = _normalize_text(step.get("title") or step.get("description") or "")
-        if not normalized:
+        concept_key = canonicalize_concept_key(step.get("title") or step.get("description") or "")
+        dedupe_key = concept_key or normalized
+        if not dedupe_key:
             continue
-        existing_index = index_by_key.get(normalized)
+        existing_index = index_by_key.get(dedupe_key)
         if existing_index is None:
-            index_by_key[normalized] = len(result)
+            index_by_key[dedupe_key] = len(result)
             result.append(step)
             continue
         if _step_sort_key(step) < _step_sort_key(result[existing_index]):

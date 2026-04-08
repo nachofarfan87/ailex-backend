@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.conversation_integrity_service import build_integrity_state, canonicalize_slot
+
 _GENERIC_QUESTION_PATTERNS = (
     "mas contexto",
     "queres contarme mas",
@@ -29,6 +31,10 @@ class CaseFollowupService:
             snapshot=snapshot,
             api_payload=api_payload,
         )
+        integrity_state = build_integrity_state(
+            conversation_state=dict(api_payload.get("conversation_state") or {}),
+            case_memory=dict(api_payload.get("case_memory") or {}),
+        )
         case_state = dict(snapshot.get("case_state") or {})
         case_stage = str(case_state.get("case_stage") or "").strip().lower()
         case_progress = dict(api_payload.get("case_progress") or {})
@@ -36,6 +42,7 @@ class CaseFollowupService:
         progress_driven = self._build_progress_driven_followup(
             open_needs=open_needs,
             confirmed_facts=confirmed_facts,
+            integrity_state=integrity_state,
             contradictions=[dict(item) for item in list(snapshot.get("contradictions") or []) if isinstance(item, dict)],
             case_progress=case_progress,
             api_payload=api_payload,
@@ -52,6 +59,7 @@ class CaseFollowupService:
             open_needs=open_needs,
             confirmed_facts=confirmed_facts,
             case_progress=case_progress,
+            integrity_state=integrity_state,
         )
         if candidate_need is None:
             return self._empty_followup("No hay una necesidad dominante pendiente que justifique una pregunta final.")
@@ -82,6 +90,7 @@ class CaseFollowupService:
         *,
         open_needs: list[dict[str, Any]],
         confirmed_facts: dict[str, Any],
+        integrity_state: dict[str, Any],
         contradictions: list[dict[str, Any]],
         case_progress: dict[str, Any],
         api_payload: dict[str, Any],
@@ -94,6 +103,7 @@ class CaseFollowupService:
                 open_needs=open_needs,
                 confirmed_facts=confirmed_facts,
                 case_progress=case_progress,
+                integrity_state=integrity_state,
                 contradictions=contradictions,
             ) or self._build_synthetic_contradiction_need(case_progress, contradictions=contradictions)
             return self._materialize_followup(
@@ -108,6 +118,7 @@ class CaseFollowupService:
                 open_needs=open_needs,
                 confirmed_facts=confirmed_facts,
                 case_progress=case_progress,
+                integrity_state=integrity_state,
             )
             return self._materialize_followup(
                 need=need,
@@ -152,8 +163,10 @@ class CaseFollowupService:
         open_needs: list[dict[str, Any]],
         confirmed_facts: dict[str, Any],
         case_progress: dict[str, Any] | None = None,
+        integrity_state: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         progress = dict(case_progress or {})
+        blocked_slots = set(dict(integrity_state or {}).get("blocked_slots") or [])
         priority_gap_keys = {
             self._canonical_key(item.get("key") or item.get("need_key"))
             for item in list(progress.get("critical_gaps") or [])
@@ -163,6 +176,7 @@ class CaseFollowupService:
             need
             for need in open_needs
             if not self._need_is_resolved_by_confirmed_fact(need, confirmed_facts)
+            and not self._need_matches_blocked_slot(need, blocked_slots)
         ]
         if not candidates:
             return None
@@ -443,7 +457,9 @@ class CaseFollowupService:
         open_needs: list[dict[str, Any]],
         confirmed_facts: dict[str, Any],
         case_progress: dict[str, Any],
+        integrity_state: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        blocked_slots = set(dict(integrity_state or {}).get("blocked_slots") or [])
         critical_gap_keys = [
             self._canonical_key(item.get("key") or item.get("need_key"))
             for item in list(case_progress.get("critical_gaps") or [])
@@ -452,6 +468,8 @@ class CaseFollowupService:
         for gap_key in critical_gap_keys:
             for need in open_needs:
                 if self._need_is_resolved_by_confirmed_fact(need, confirmed_facts):
+                    continue
+                if self._need_matches_blocked_slot(need, blocked_slots):
                     continue
                 if self._derive_fact_key_from_need(need) == gap_key:
                     return need
@@ -463,8 +481,10 @@ class CaseFollowupService:
         open_needs: list[dict[str, Any]],
         confirmed_facts: dict[str, Any],
         case_progress: dict[str, Any],
+        integrity_state: dict[str, Any] | None = None,
         contradictions: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
+        blocked_slots = set(dict(integrity_state or {}).get("blocked_slots") or [])
         contradictions = list(case_progress.get("basis", {}).get("contradictions") or case_progress.get("contradictions") or contradictions)
         contradiction_keys = [
             self._canonical_key(dict(item or {}).get("key"))
@@ -475,9 +495,25 @@ class CaseFollowupService:
             for need in open_needs:
                 if self._need_is_resolved_by_confirmed_fact(need, confirmed_facts):
                     continue
+                if self._need_matches_blocked_slot(need, blocked_slots):
+                    continue
                 if self._derive_fact_key_from_need(need) == contradiction_key:
                     return need
         return None
+
+    def _need_matches_blocked_slot(
+        self,
+        need: dict[str, Any],
+        blocked_slots: set[str],
+    ) -> bool:
+        if not blocked_slots:
+            return False
+        canonical_slot = canonicalize_slot(
+            need_key=str(need.get("need_key") or ""),
+            resolved_by_fact_key=str(need.get("resolved_by_fact_key") or ""),
+            question=str(need.get("suggested_question") or ""),
+        )
+        return bool(canonical_slot and canonical_slot in blocked_slots)
 
     def _build_synthetic_contradiction_need(
         self,

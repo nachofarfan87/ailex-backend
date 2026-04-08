@@ -270,3 +270,35 @@ def test_workspace_keeps_primary_focus_primary_step_and_followup_aligned():
     assert "contradiccion" in workspace["primary_focus"]["label"].lower()
     assert "contradiccion" in workspace["action_plan"][0]["title"].lower()
     assert "vinculo" in workspace["recommended_next_question"].lower()
+
+
+def test_workspace_aplica_deduplicacion_global_minima_entre_pasos_y_evidencia():
+    payload = _payload()
+    payload["case_memory"]["contradictions"] = []
+    payload["case_progress"]["contradictions"] = []
+    payload["case_progress"]["blocking_issues"] = []
+    payload["case_followup"] = {"should_ask": False, "question": "", "reason": ""}
+    payload["case_strategy"] = {
+        "recommended_actions": [
+            "Reunir partida de nacimiento y prueba basica del vinculo filial.",
+        ]
+    }
+    payload["case_memory"]["missing"]["critical"] = []
+    payload["execution_output"] = {"execution_output": {}}
+    payload["conflict_evidence"] = {
+        "key_evidence_missing": [
+            "Partida de nacimiento del hijo.",
+            "Partida de nacimiento u otra acreditacion del vinculo filial.",
+        ]
+    }
+
+    workspace = build_case_workspace(api_payload=payload)
+
+    evidence_labels = [
+        item["label"]
+        for bucket in workspace["evidence_checklist"].values()
+        if isinstance(bucket, list)
+        for item in bucket
+    ]
+    assert any("partida de nacimiento" in step["title"].casefold() for step in workspace["action_plan"])
+    assert len([label for label in evidence_labels if "partida de nacimiento" in label.casefold()]) <= 1
