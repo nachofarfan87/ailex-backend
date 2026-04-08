@@ -586,8 +586,9 @@ def test_postprocessor_uses_composed_response_text_when_available():
         composer_out = result_t2.api_payload["composer_output"]
         assert composer_out["turn_type"] != "initial"
         assert composer_out["composed_response_text"] != ""
-        # La respuesta final debe ser la compuesta
-        assert result_t2.response_text == composer_out["composed_response_text"]
+        # La respuesta final debe conservar la base compuesta, aunque el
+        # postprocessor pueda completar el cierre estrategico despues.
+        assert result_t2.response_text.startswith(composer_out["composed_response_text"])
 
     finally:
         db.close()
@@ -878,4 +879,274 @@ def test_conversation_memory_persisted_in_api_payload():
 
     finally:
         db.close()
-        Base.metadata.drop_all(bind=engine)
+
+
+def test_compose_action_first_suppresses_generic_opening():
+    result = compose(
+        conversation_state=_state(turn_count=2, known_fact_count=2, case_completeness="medium"),
+        dialogue_policy=_policy(action="hybrid", guidance_strength="medium"),
+        response_text="Para avanzar de forma concreta, podes hacer esto:\n1. Presentar escrito.",
+        pipeline_payload={
+            "output_mode": "ejecucion",
+            "strategy_composition_profile": {
+                "opening_style": "none",
+                "allow_followup": False,
+                "prioritize_action": True,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {
+                "selected_opening": "",
+                "selected_bridge": "Anda por esto:",
+                "selected_followup_intro": "",
+            },
+        },
+    )
+
+    assert result["lead_text"] == ""
+    assert result["body_bridge"] == ""
+    assert "Con lo que me cont" not in result["composed_response_text"]
+
+
+def test_compose_orient_with_prudence_uses_prudent_language_profile():
+    result = compose(
+        conversation_state=_state(turn_count=3, known_fact_count=2, case_completeness="medium"),
+        dialogue_policy=_policy(action="hybrid", guidance_strength="medium"),
+        response_text="Hoy conviene mirar esto con cuidado.\n\n¿Tiene recibos de sueldo?",
+        pipeline_payload={
+            "output_mode": "orientacion_inicial",
+            "strategy_composition_profile": {
+                "opening_style": "guided",
+                "allow_followup": True,
+                "prioritize_action": False,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {
+                "selected_opening": "Con esta base ya te puedo orientar con prudencia.",
+                "selected_bridge": "Hoy conviene mirarlo asi:",
+                "selected_followup_intro": "Si queres cerrar mejor este punto, me ayudaria saber:",
+            },
+        },
+    )
+
+    assert result["lead_text"] == "Con esta base ya te puedo orientar con prudencia."
+    assert result["question_intro"] == "Si queres cerrar mejor este punto, me ayudaria saber:"
+
+# ─── Tests: FASE 12.7 — consistency_policy integration ───────────────────────
+
+
+def _base_compose_kwargs(
+    *,
+    turn_count: int = 3,
+    case_completeness: str = "medium",
+    action: str = "hybrid",
+    response_text: str = "",
+    strategy_mode: str = "orient_with_prudence",
+    output_mode: str = "orientacion_inicial",
+) -> dict:
+    return {
+        "conversation_state": _state(turn_count=turn_count, case_completeness=case_completeness),
+        "dialogue_policy": _policy(action=action),
+        "response_text": response_text or f"Orientacion del caso.\n\n{_QUESTION_PARA}",
+        "pipeline_payload": {
+            "output_mode": output_mode,
+            "strategy_composition_profile": {
+                "strategy_mode": strategy_mode,
+                "opening_style": "guided",
+                "allow_followup": True,
+                "prioritize_action": False,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {
+                "selected_opening": "Con esta base ya te puedo orientar.",
+                "selected_bridge": "Lo que conviene mirar ahora:",
+                "selected_followup_intro": "Para cerrar esto, necesito saber:",
+            },
+        },
+    }
+
+
+def test_consistency_suppress_lead_removes_lead_text():
+    result = compose(
+        **_base_compose_kwargs(turn_count=3, case_completeness="medium"),
+        consistency_policy={"suppress_lead": True},
+    )
+    assert result["lead_text"] == ""
+
+
+def test_consistency_suppress_body_bridge_removes_bridge():
+    result = compose(
+        **_base_compose_kwargs(turn_count=3, case_completeness="medium"),
+        consistency_policy={"suppress_body_bridge": True},
+    )
+    assert result["body_bridge"] == ""
+
+
+def test_consistency_suppress_question_intro_removes_intro():
+    result = compose(
+        **_base_compose_kwargs(
+            action="ask",
+            response_text="Algo relevante.\n\n" + _QUESTION_PARA,
+        ),
+        consistency_policy={"suppress_question_intro": True},
+    )
+    assert result["question_intro"] == ""
+
+
+def test_consistency_lead_type_whitelist_empty_removes_lead():
+    result = compose(
+        **_base_compose_kwargs(turn_count=3, case_completeness="medium"),
+        consistency_policy={"lead_type_whitelist": []},
+    )
+    assert result["lead_text"] == ""
+
+
+def test_consistency_lead_type_whitelist_filters_incompatible_type():
+    result = compose(
+        conversation_state=_state(turn_count=3, case_completeness="medium"),
+        dialogue_policy=_policy(action="hybrid"),
+        response_text="Orientacion.\n\n" + _QUESTION_PARA,
+        pipeline_payload={
+            "output_mode": "orientacion_inicial",
+            "strategy_composition_profile": {
+                "opening_style": "guided",
+                "allow_followup": True,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {
+                "selected_opening": "Con esta base ya te puedo orientar.",
+            },
+        },
+        consistency_policy={"lead_type_whitelist": ["clarification"]},
+    )
+    assert result["lead_text"] == ""
+
+
+def test_consistency_max_body_paragraphs_limits_content():
+    long_body = (
+        "Primer punto de contenido con suficiente texto para ser un parrafo.\n\n"
+        "Segundo punto de contenido con suficiente texto.\n\n"
+        "Tercer punto de contenido que deberia ser cortado.\n\n"
+        + _QUESTION_PARA
+    )
+    result = compose(
+        conversation_state=_state(turn_count=3, case_completeness="medium"),
+        dialogue_policy=_policy(action="ask"),
+        response_text=long_body,
+        pipeline_payload={
+            "output_mode": "orientacion_inicial",
+            "strategy_composition_profile": {
+                "opening_style": "minimal",
+                "allow_followup": True,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {},
+        },
+        consistency_policy={"max_body_paragraphs": 1},
+    )
+    body = result["body_text"]
+    body_paras = [p for p in body.split("\n\n") if p.strip() and "?" not in p]
+    assert len(body_paras) <= 1, f"body_text tiene {len(body_paras)} parrafos de contenido, max=1"
+
+
+def test_consistency_none_policy_behaves_like_no_policy():
+    kwargs = _base_compose_kwargs(turn_count=2, action="ask")
+    result_none = compose(**kwargs, consistency_policy=None)
+    result_empty = compose(**kwargs, consistency_policy={})
+    assert result_none["turn_type"] == result_empty["turn_type"]
+    assert result_none["composition_strategy"] == result_empty["composition_strategy"]
+
+
+def test_action_first_consistency_removes_lead_and_bridge():
+    result = compose(
+        conversation_state=_state(turn_count=4, case_completeness="medium"),
+        dialogue_policy=_policy(action="advise"),
+        response_text=(
+            "Para avanzar de forma concreta, podes hacer esto:\n"
+            "1. Presentar escrito.\n"
+            "2. Reunir documentacion."
+        ),
+        pipeline_payload={
+            "output_mode": "ejecucion",
+            "strategy_composition_profile": {
+                "strategy_mode": "action_first",
+                "opening_style": "none",
+                "allow_followup": False,
+                "prioritize_action": True,
+                "content_density": "guided",
+            },
+            "strategy_language_profile": {
+                "selected_bridge": "Para avanzar de forma concreta:",
+            },
+        },
+        consistency_policy={
+            "suppress_lead": True,
+            "suppress_body_bridge": True,
+            "suppress_question_intro": True,
+            "lead_type_whitelist": [],
+        },
+    )
+    assert result["lead_text"] == ""
+    assert result["body_bridge"] == ""
+
+
+def test_close_without_more_questions_consistency_no_question_intro():
+    result = compose(
+        conversation_state=_state(turn_count=5, case_completeness="high"),
+        dialogue_policy=_policy(action="hybrid"),
+        response_text="Con lo que hay hoy, conviene avanzar asi: divorcio unilateral.",
+        pipeline_payload={
+            "output_mode": "orientacion_inicial",
+            "strategy_composition_profile": {
+                "strategy_mode": "close_without_more_questions",
+                "opening_style": "minimal",
+                "allow_followup": False,
+                "prioritize_action": False,
+                "content_density": "brief",
+            },
+            "strategy_language_profile": {
+                "selected_opening": "Con esta base ya conviene cerrar.",
+                "selected_closing": "Con esto ya podes avanzar.",
+            },
+        },
+        consistency_policy={
+            "suppress_lead": True,
+            "suppress_body_bridge": True,
+            "suppress_question_intro": True,
+            "lead_type_whitelist": ["partial_closure"],
+            "max_body_paragraphs": 2,
+        },
+    )
+    assert result["lead_text"] == ""
+    assert result["question_intro"] == ""
+
+
+def test_clarify_critical_consistency_only_one_body_para():
+    result = compose(
+        conversation_state=_state(turn_count=3, case_completeness="low"),
+        dialogue_policy=_policy(action="ask"),
+        response_text=(
+            "El dato clave que necesito es el vinculo procesal.\n\n"
+            "Segundo punto que deberia cortarse.\n\n"
+            + _QUESTION_PARA
+        ),
+        pipeline_payload={
+            "output_mode": "orientacion_inicial",
+            "strategy_composition_profile": {
+                "strategy_mode": "clarify_critical",
+                "opening_style": "minimal",
+                "allow_followup": True,
+                "content_density": "brief",
+            },
+            "strategy_language_profile": {
+                "selected_followup_intro": "Necesito confirmar solo esto:",
+            },
+        },
+        consistency_policy={
+            "suppress_body_bridge": True,
+            "max_body_paragraphs": 1,
+            "lead_type_whitelist": ["clarification"],
+        },
+    )
+    body = result["body_text"]
+    content_paras = [p for p in body.split("\n\n") if p.strip() and "?" not in p]
+    assert len(content_paras) <= 1

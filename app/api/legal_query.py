@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.schemas.contracts import CaseWorkspace
 from app.auth.dependencies import get_optional_user
 from app.db.database import get_db
 from app.db.user_models import User
@@ -108,6 +109,7 @@ class LegalQueryResponse(BaseModel):
     conversational_intelligence: dict[str, Any] = Field(default_factory=dict)
     intent_resolution: dict[str, Any] = Field(default_factory=dict)
     execution_output: dict[str, Any] = Field(default_factory=dict)
+    case_workspace: Optional[CaseWorkspace] = None
     generated_document: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     confidence: Optional[float] = None

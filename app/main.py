@@ -56,6 +56,7 @@ async def lifespan(_app: FastAPI):
     import app.models.system_safety_event  # noqa: F401
     import app.models.session_analytics  # noqa: F401
     import app.models.conversation_state_snapshot  # noqa: F401
+    import app.models.case_state  # noqa: F401
     import app.services.learning_runtime_config_store  # noqa: F401
     import app.db.user_models  # noqa: F401
     from app.db.database import SessionLocal, init_db

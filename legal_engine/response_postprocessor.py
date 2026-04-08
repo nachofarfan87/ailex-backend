@@ -7,6 +7,25 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from app.services import conversation_observability_service
+from app.services.case_state_extractor_service import (
+    PROGRESSION_TO_CASE_STAGE,
+    case_state_extractor_service,
+)
+from app.services.case_followup_service import case_followup_service
+from app.services.case_confidence_service import resolve_case_confidence
+from app.services.case_progress_service import (
+    build_case_progress,
+    extract_case_progress_snapshot,
+)
+from app.services.case_progress_narrative_service import case_progress_narrative_service
+from app.services.case_summary_service import case_summary_service
+from app.services.case_workspace_service import build_case_workspace
+from app.services.smart_strategy_service import resolve_smart_strategy
+from app.services.strategy_composition_service import resolve_strategy_composition_profile
+from app.services.strategy_language_service import resolve_strategy_language_profile
+from app.services.response_composition_service import resolve_response_composition
+from app.services.conversation_consistency_service import resolve_consistency_policy
+from app.services.case_state_service import case_state_service
 from app.services.conversation_state_service import conversation_state_service
 from app.services.conversational_intelligence_service import (
     apply_conversational_intelligence_to_policy,
@@ -24,9 +43,9 @@ from app.services.progression_policy import (
     finalize_progression_state,
     resolve_progression_policy,
 )
-from app.services.strategic_decision_service import resolve_strategic_decision
+from app.services.utc import utc_now
 from legal_engine.orchestrator_schema import FinalOutput, RetrievalBundle, StrategyBundle
-
+from app.services.adaptive_followup_service import resolve_followup_decision
 
 _QUICK_START_PREFIX = "Primer paso recomendado:"
 _QUICK_START_SIMILARITY_THRESHOLD = 0.75
@@ -59,7 +78,9 @@ class ResponsePostprocessor:
         raw_response_text = self._build_response_text(pipeline_payload)
         response_text = self._sanitize_text(raw_response_text)
         response_text = self._prepend_quick_start(
-            response_text, pipeline_payload.get("quick_start"),
+            response_text,
+            pipeline_payload.get("quick_start"),
+            output_mode=pipeline_payload.get("output_mode"),
         )
         response_text = self._apply_prudence(
             response_text=response_text,
@@ -110,12 +131,40 @@ class ResponsePostprocessor:
         # FASE 9 — Professional-grade reasoning
         # Inyecta el bloque de razonamiento jurídico estructurado ANTES de los pasos prácticos.
         # Si falla, response_text queda intacto.
-        response_text = self._inject_legal_reasoning(
+        self._attach_case_state(
+            db=db,
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+        # FASE 13A — Case Memory: consolida hechos, partes y faltantes del turno
+        self._attach_case_memory(api_payload=api_payload)
+        self._attach_case_progress(api_payload=api_payload)
+        self._attach_case_followup(api_payload=api_payload)
+        self._attach_case_confidence(api_payload=api_payload)
+        self._attach_smart_strategy(api_payload=api_payload)
+        self._attach_strategy_composition_profile(api_payload=api_payload)
+        # FASE 12.7 — consistency policy antes que language profile para pasar stable_bucket
+        self._attach_consistency_policy(api_payload=api_payload)
+        self._attach_strategy_language_profile(api_payload=api_payload)
+        self._attach_case_summary(
+            db=db,
+            normalized_input=normalized_input,
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+        )
+        self._attach_case_workspace(api_payload=api_payload)
+        self._attach_case_progress_narrative(api_payload=api_payload)
+        response_text = self._transform_response_by_output_mode(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
             api_payload=api_payload,
         )
-        response_text = self._transform_response_by_output_mode(
+        response_text = self._inject_case_progress_narrative(
+            response_text=response_text,
+            api_payload=api_payload,
+        )
+        response_text = self._inject_legal_reasoning(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
             api_payload=api_payload,
@@ -128,10 +177,30 @@ class ResponsePostprocessor:
         )
         api_payload["response_text"] = response_text
 
+        try:
+            output_mode = self._get_output_mode(api_payload)
+            self._get_strategy_composition_profile(api_payload)
+            self._get_strategy_language_profile(api_payload)
+            case_followup = dict(api_payload.get("case_followup") or {})
+            has_followup = bool(case_followup.get("should_ask")) and bool(str(case_followup.get("question") or "").strip())
+            if output_mode == "orientacion_inicial":
+                response_text = self._normalize_closing(response_text, has_followup=has_followup)
+            else:
+                response_text = self._normalize_opening(response_text, output_mode)
+                response_text = self._normalize_final_response(response_text, output_mode=output_mode)
+                response_text = self._normalize_closing(response_text, has_followup=has_followup)
+                response_text = self._apply_length_limits(response_text, output_mode=output_mode)
+            api_payload["response_text"] = response_text
+        except Exception:
+            logger.exception("No se pudo normalizar la respuesta final.")
+
         # 8.3 — Persist conversation memory
         # Registra en el snapshot lo que pasó en este turno (policy + composer).
         # Si falla, no afecta la respuesta.
         self._persist_conversation_memory(db=db, api_payload=api_payload)
+        # 13A — Persist case memory
+        self._persist_case_memory(db=db, api_payload=api_payload)
+        self._persist_case_progress(db=db, api_payload=api_payload)
         self._persist_conversation_progression(
             db=db,
             api_payload=api_payload,
@@ -231,6 +300,9 @@ class ResponsePostprocessor:
 
             reasoning = build_legal_reasoning(context)
             api_payload["legal_reasoning"] = reasoning
+            output_mode = self._get_output_mode(api_payload)
+            if output_mode != "orientacion_inicial":
+                return response_text
 
             block = format_legal_reasoning_as_text(reasoning).strip()
             if block:
@@ -247,31 +319,39 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         api_payload: dict[str, Any],
     ) -> str:
-        progression_policy = api_payload.get("progression_policy") or {}
-        output_mode = str(
-            progression_policy.get("output_mode")
-            or api_payload.get("output_mode")
-            or "orientacion_inicial"
-        ).strip()
+        output_mode = self._get_output_mode(api_payload)
         if output_mode == "orientacion_inicial":
             return response_text
 
         try:
-            if output_mode == "estructuracion":
-                return self._render_structuring_response(
-                    pipeline_payload=pipeline_payload,
-                    api_payload=api_payload,
-                )
-            if output_mode == "estrategia":
-                return self._render_strategy_response(
-                    pipeline_payload=pipeline_payload,
-                    api_payload=api_payload,
-                )
-            if output_mode == "ejecucion":
-                return self._render_execution_response(
-                    pipeline_payload=pipeline_payload,
-                    api_payload=api_payload,
-                )
+            followup_question = self._resolve_followup_question(
+                api_payload,
+                dict(api_payload.get("execution_output") or {}),
+                output_mode=output_mode,
+            )
+            composed = resolve_response_composition(
+                output_mode=output_mode,
+                smart_strategy=dict(api_payload.get("smart_strategy") or {}),
+                strategy_composition_profile=self._get_strategy_composition_profile(api_payload),
+                strategy_language_profile=self._get_strategy_language_profile(api_payload),
+                conversation_state=dict(api_payload.get("conversation_state") or {}),
+                dialogue_policy=dict(api_payload.get("dialogue_policy") or {}),
+                execution_output=dict(api_payload.get("execution_output") or {}),
+                progression_policy=dict(api_payload.get("progression_policy") or {}),
+                pipeline_payload=pipeline_payload,
+                api_payload=api_payload,
+                followup_question=followup_question,
+            )
+            if composed:
+                api_payload["response_composition"] = composed
+                # Cache composition metadata so _normalize_closing can read it
+                self._composition_metadata = dict(composed.get("composition_metadata") or {})
+                strategic_decision = dict(composed.get("strategic_decision") or {})
+                if strategic_decision:
+                    api_payload["strategic_decision"] = strategic_decision
+                rendered = str(composed.get("rendered_response_text") or "").strip()
+                if rendered:
+                    return rendered
         except Exception:
             logger.exception("No se pudo transformar la respuesta segun output_mode.")
             return response_text
@@ -283,50 +363,24 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         api_payload: dict[str, Any],
     ) -> str:
-        conversation_state = dict(api_payload.get("conversation_state") or {})
-        dialogue_policy = dict(api_payload.get("dialogue_policy") or {})
-        execution_output = dict(api_payload.get("execution_output") or {})
-        progression_policy = dict(api_payload.get("progression_policy") or {})
-
-        known_items = self._select_known_case_facts(conversation_state)[:3]
-        missing_items = self._select_missing_case_facts(conversation_state)[:3]
-        point_key = self._resolve_point_key(dialogue_policy, conversation_state)
-        followup_question = self._resolve_followup_question(
-            api_payload,
-            execution_output,
+        composed = resolve_response_composition(
             output_mode="estructuracion",
+            smart_strategy=dict(api_payload.get("smart_strategy") or {}),
+            strategy_composition_profile=self._get_strategy_composition_profile(api_payload),
+            strategy_language_profile=self._get_strategy_language_profile(api_payload),
+            conversation_state=dict(api_payload.get("conversation_state") or {}),
+            dialogue_policy=dict(api_payload.get("dialogue_policy") or {}),
+            execution_output=dict(api_payload.get("execution_output") or {}),
+            progression_policy=dict(api_payload.get("progression_policy") or {}),
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+            followup_question=self._resolve_followup_question(
+                api_payload,
+                dict(api_payload.get("execution_output") or {}),
+                output_mode="estructuracion",
+            ),
         )
-
-        sections: list[str] = []
-        sections.append(
-            self._pick_conversational_variant(
-                conversation_state=conversation_state,
-                key="structuring_open",
-                options=(
-                    "Con lo que me contaste hasta ahora, el caso ya se puede ordenar mejor.",
-                    "Con lo que ya sabemos, el caso se deja ordenar con bastante mas claridad.",
-                ),
-            )
-        )
-        sections.append(
-            "Con lo que me contaste hasta ahora:\n" +
-            "\n".join(f"- {item}" for item in (known_items or ["Ya hay una base inicial del caso, pero conviene ordenarla mejor."]))
-        )
-        sections.append(
-            "Ahora lo que todavia falta definir para cerrar bien el encuadre es esto:\n" +
-            "\n".join(f"- {item}" for item in (missing_items or ["Queda cerrar el dato que define el encuadre final."]))
-        )
-        if point_key:
-            sections.append(f"Ahora lo mas importante es: {point_key}.")
-        elif progression_policy.get("missing_focus"):
-            sections.append(
-                f"Ahora lo mas importante es: {str((progression_policy.get('missing_focus') or [''])[0]).strip()}."
-            )
-        if followup_question:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='structuring_followup', options=('Para seguir sin cerrar esto en falso, necesito confirmar:', 'Para avanzar con una orientacion mas firme, necesito confirmar:'))} {followup_question}"
-            )
-        return "\n\n".join(section for section in sections if section.strip()).strip()
+        return str(composed.get("rendered_response_text") or "").strip()
 
     def _render_strategy_response(
         self,
@@ -334,51 +388,27 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         api_payload: dict[str, Any],
     ) -> str:
-        conversation_state = dict(api_payload.get("conversation_state") or {})
-        progression_policy = dict(api_payload.get("progression_policy") or {})
-        execution_output = dict(api_payload.get("execution_output") or {})
-        strategic_decision = resolve_strategic_decision(
-            conversation_state=conversation_state,
-            pipeline_payload=pipeline_payload,
-            progression_policy=progression_policy,
-        )
-        api_payload["strategic_decision"] = strategic_decision
-
-        recommended_path = self._strip_known_quick_start(str(strategic_decision.get("recommended_path") or "").strip())
-        priority_action = self._strip_known_quick_start(str(strategic_decision.get("priority_action") or "").strip())
-        justification = str(strategic_decision.get("justification") or "").strip()
-        alternative_path = self._strip_known_quick_start(str(strategic_decision.get("alternative_path") or "").strip())
-        alternative_reason = str(strategic_decision.get("alternative_reason") or "").strip()
-        followup_question = self._resolve_followup_question(
-            api_payload,
-            execution_output,
+        composed = resolve_response_composition(
             output_mode="estrategia",
+            smart_strategy=dict(api_payload.get("smart_strategy") or {}),
+            strategy_composition_profile=self._get_strategy_composition_profile(api_payload),
+            strategy_language_profile=self._get_strategy_language_profile(api_payload),
+            conversation_state=dict(api_payload.get("conversation_state") or {}),
+            dialogue_policy=dict(api_payload.get("dialogue_policy") or {}),
+            execution_output=dict(api_payload.get("execution_output") or {}),
+            progression_policy=dict(api_payload.get("progression_policy") or {}),
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+            followup_question=self._resolve_followup_question(
+                api_payload,
+                dict(api_payload.get("execution_output") or {}),
+                output_mode="estrategia",
+            ),
         )
-        normalized_justification = justification.rstrip(" .:")
-        normalized_alternative_reason = alternative_reason.rstrip(" .:")
-
-        sections: list[str] = []
-        if recommended_path:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_open', options=('Lo que mas te conviene hoy es:', 'En este caso, el mejor camino hoy es:'))} {recommended_path}"
-            )
-        if justification:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_why', options=('Esto pesa mas porque', 'La razon principal es que'))} {normalized_justification[0].lower() + normalized_justification[1:] if len(normalized_justification) > 1 else normalized_justification.lower()}."
-            )
-        if priority_action:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_action', options=('El paso que priorizaria ahora es:', 'Si tuviera que ordenar el siguiente movimiento, iria por esto:'))} {priority_action}"
-            )
-        if alternative_path:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_alternative', options=('La otra via existe, pero hoy queda mas atras:', 'Como alternativa se puede pensar esta via, pero hoy queda en segundo plano:'))} {alternative_path}. {normalized_alternative_reason or 'Normalmente deja mas puntos criticos abiertos antes de presentar'}."
-            )
-        if followup_question:
-            sections.append(
-                f"{self._pick_conversational_variant(conversation_state=conversation_state, key='strategy_followup', options=('Para cerrar esta estrategia sin dejar cabos sueltos, necesito confirmar:', 'El dato que me falta para terminar de cerrarla bien es este:'))} {followup_question}"
-            )
-        return "\n\n".join(section for section in sections if section.strip()).strip()
+        strategic_decision = dict(composed.get("strategic_decision") or {})
+        if strategic_decision:
+            api_payload["strategic_decision"] = strategic_decision
+        return str(composed.get("rendered_response_text") or "").strip()
 
     def _render_execution_response(
         self,
@@ -386,83 +416,24 @@ class ResponsePostprocessor:
         pipeline_payload: dict[str, Any],
         api_payload: dict[str, Any],
     ) -> str:
-        execution_output = dict(api_payload.get("execution_output") or {})
-        execution_data = dict(execution_output.get("execution_output") or {})
-        actions = self._dedupe_texts(list(execution_data.get("what_to_do_now") or []))
-        where_to_go = self._dedupe_texts(list(execution_data.get("where_to_go") or []))
-        requests = self._dedupe_texts(list(execution_data.get("what_to_request") or []))
-        documents = self._dedupe_texts(list(execution_data.get("documents_needed") or []))
-        followup_question = self._resolve_followup_question(
-            api_payload,
-            execution_output,
+        composed = resolve_response_composition(
             output_mode="ejecucion",
+            smart_strategy=dict(api_payload.get("smart_strategy") or {}),
+            strategy_composition_profile=self._get_strategy_composition_profile(api_payload),
+            strategy_language_profile=self._get_strategy_language_profile(api_payload),
+            conversation_state=dict(api_payload.get("conversation_state") or {}),
+            dialogue_policy=dict(api_payload.get("dialogue_policy") or {}),
+            execution_output=dict(api_payload.get("execution_output") or {}),
+            progression_policy=dict(api_payload.get("progression_policy") or {}),
+            pipeline_payload=pipeline_payload,
+            api_payload=api_payload,
+            followup_question=self._resolve_followup_question(
+                api_payload,
+                dict(api_payload.get("execution_output") or {}),
+                output_mode="ejecucion",
+            ),
         )
-
-        if not actions:
-            case_strategy = dict(pipeline_payload.get("case_strategy") or {})
-            actions = self._dedupe_texts(list(case_strategy.get("recommended_actions") or []))[:3]
-
-        sections: list[str] = []
-        sections.append(
-            "Manana podrias hacer esto:\n" +
-            "\n".join(f"{index}. {item}" for index, item in enumerate(actions[:3], start=1))
-        )
-        if where_to_go:
-            sections.append(
-                "Donde ir:\n" +
-                "\n".join(f"- {item}" for item in where_to_go[:2])
-            )
-        if documents:
-            sections.append(
-                "Que presentar:\n" +
-                "\n".join(f"- {item}" for item in documents[:3])
-            )
-        if requests:
-            sections.append(
-                "Que pedir:\n" +
-                "\n".join(f"- {item}" for item in requests[:3])
-            )
-        sections.append("Si no tenes abogado:\n- podes pedir orientacion inicial en defensoria o en el organismo publico que corresponda en tu jurisdiccion.")
-        if followup_question:
-            sections.append(f"Para ajustar el paso siguiente, necesito este dato: {followup_question}")
-        return "\n\n".join(section for section in sections if section.strip()).strip()
-
-    def _select_known_case_facts(self, conversation_state: dict[str, Any]) -> list[str]:
-        result: list[str] = []
-        for item in list(conversation_state.get("known_facts") or []):
-            if not isinstance(item, dict):
-                continue
-            key = str(item.get("key") or "").strip()
-            value = item.get("value")
-            rendered = self._render_known_fact(key=key, value=value)
-            if rendered:
-                result.append(rendered)
-        return self._dedupe_texts(result)
-
-    def _select_missing_case_facts(self, conversation_state: dict[str, Any]) -> list[str]:
-        critical: list[str] = []
-        ordinary: list[str] = []
-        for item in list(conversation_state.get("missing_facts") or []):
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or item.get("key") or "").strip()
-            priority = str(item.get("priority") or "").strip().lower()
-            importance = str(item.get("importance") or "").strip().lower()
-            purpose = str(item.get("purpose") or "").strip().lower()
-            if not label:
-                continue
-            if priority in {"critical", "high", "required"} or importance == "core" or purpose in {"identify", "enable"}:
-                critical.append(label)
-            else:
-                ordinary.append(label)
-        return self._dedupe_texts([*critical, *ordinary])
-
-    def _resolve_point_key(self, dialogue_policy: dict[str, Any], conversation_state: dict[str, Any]) -> str:
-        dominant = str(dialogue_policy.get("dominant_missing_key") or "").strip().replace("_", " ")
-        if dominant:
-            return dominant
-        missing = self._select_missing_case_facts(conversation_state)
-        return missing[0] if missing else ""
+        return str(composed.get("rendered_response_text") or "").strip()
 
     def _resolve_followup_question(
         self,
@@ -470,6 +441,15 @@ class ResponsePostprocessor:
         execution_output: dict[str, Any],
         output_mode: str = "",
     ) -> str:
+        case_followup = dict(api_payload.get("case_followup") or {})
+        profile = self._get_strategy_composition_profile(api_payload)
+        if case_followup:
+            if not bool(profile.get("allow_followup", True)):
+                return ""
+            if bool(case_followup.get("should_ask")):
+                return str(case_followup.get("question") or "").strip()
+            return ""
+
         execution_data = dict(execution_output.get("execution_output") or {})
         question = str(execution_data.get("followup_question") or "").strip()
         if not question:
@@ -515,18 +495,34 @@ class ResponsePostprocessor:
 
         conversation_state = dict(api_payload.get("conversation_state") or {})
         progress = dict(conversation_state.get("progress_signals") or {})
+        case_progress = dict(api_payload.get("case_progress") or {})
         blocking_missing = bool(progress.get("blocking_missing"))
         completeness = str(progress.get("case_completeness") or "low").strip().lower()
         dominant_purpose = str(dialogue_policy.get("dominant_missing_purpose") or "").strip().lower()
-        dominant_importance = str(dialogue_policy.get("dominant_missing_importance") or "").strip().lower()
+        next_step_type = str(case_progress.get("next_step_type") or "").strip().lower()
+        progress_status = str(case_progress.get("progress_status") or "").strip().lower()
+        readiness_label = str(case_progress.get("readiness_label") or "").strip().lower()
+        has_blockers = bool(list(case_progress.get("blocking_issues") or []))
+        critical_gap_count = len(list(case_progress.get("critical_gaps") or []))
 
+        if completeness in {"high", "very_high"} and not blocking_missing:
+            return False
+        if next_step_type == "resolve_contradiction":
+            return True
+        if next_step_type == "execute" or (readiness_label == "high" and not has_blockers and critical_gap_count == 0):
+            return False
+        if progress_status == "blocked" and next_step_type not in {"ask", "resolve_contradiction"}:
+            return False
+        if output_mode == "ejecucion" and self._has_clear_execution_steps(execution_output):
+            return False
         if blocking_missing:
             return True
         if output_mode == "ejecucion":
-            return dominant_purpose in {"enable", "identify"}
+            return blocking_missing and dominant_purpose in {"enable"}
         if output_mode == "estrategia":
-            return dominant_purpose in {"enable", "identify", "prove"} or (
-                dominant_importance == "core" and completeness != "high"
+            return (
+                blocking_missing
+                or dominant_purpose in {"enable"}
             )
         if output_mode == "estructuracion":
             return action == "ask" or dominant_purpose in {"enable", "identify", "quantify"}
@@ -535,62 +531,15 @@ class ResponsePostprocessor:
             return dominant_purpose in {"enable", "identify"}
         return True
 
-    def _pick_conversational_variant(
-        self,
-        *,
-        conversation_state: dict[str, Any],
-        key: str,
-        options: tuple[str, ...],
-    ) -> str:
-        if not options:
-            return ""
-        if len(options) == 1:
-            return options[0]
-
-        turn_count = int(conversation_state.get("turn_count") or 0)
-        memory = dict(conversation_state.get("conversation_memory") or {})
-        if not memory and turn_count <= 2:
-            return options[0]
-
-        seed = (
-            turn_count
-            + len(key)
-            + len(str(memory.get("last_turn_type") or ""))
-            + len(str(memory.get("last_dialogue_action") or ""))
-        )
-        return options[seed % len(options)]
-
-    def _render_known_fact(self, *, key: str, value: Any) -> str:
-        clean_key = str(key or "").strip().replace("_", " ")
-        clean_value = str(value or "").strip()
-        if key == "hay_hijos":
-            return "Hay hijos involucrados." if str(value).lower() not in {"false", "0", "no"} else "No aparecen hijos involucrados."
-        if key == "rol_procesal" and clean_value:
-            return f"El rol procesal informado es {clean_value}."
-        if key == "ingresos_otro_progenitor" and clean_value:
-            return "Ya hay un dato inicial sobre los ingresos del otro progenitor."
-        if clean_value:
-            return f"{clean_key.capitalize()}: {clean_value}."
-        return ""
-
-    def _strip_known_quick_start(self, text: str) -> str:
-        value = str(text or "").strip()
-        prefix = "Primer paso recomendado:"
-        if value.lower().startswith(prefix.lower()):
-            return value[len(prefix):].strip(" .:")
-        return value
-
-    def _dedupe_texts(self, items: list[Any]) -> list[str]:
-        seen: set[str] = set()
-        result: list[str] = []
-        for item in items:
-            value = str(item or "").strip()
-            normalized = value.casefold()
-            if not value or normalized in seen:
-                continue
-            seen.add(normalized)
-            result.append(value)
-        return result
+    def _truncate_text(self, text: str, max_chars: int = 180) -> str:
+        value = self._normalize_whitespace(text)
+        if len(value) <= max_chars:
+            return value
+        truncated = value[: max_chars + 1]
+        if " " in truncated:
+            truncated = truncated.rsplit(" ", 1)[0]
+        truncated = truncated.rstrip(" ,.;:")
+        return f"{truncated}..." if truncated else value[:max_chars].rstrip() + "..."
 
     # 8.2D — Conversation Composer
 
@@ -625,17 +574,414 @@ class ResponsePostprocessor:
                 pipeline_payload={
                     "output_mode": api_payload.get("output_mode"),
                     "progression_policy": api_payload.get("progression_policy"),
+                    "smart_strategy": api_payload.get("smart_strategy"),
+                    "strategy_composition_profile": api_payload.get("strategy_composition_profile"),
+                    "strategy_language_profile": api_payload.get("strategy_language_profile"),
                 },
+                consistency_policy=dict(api_payload.get("consistency_policy") or {}),
             )
             if result:
                 api_payload["composer_output"] = result
                 composed = str(result.get("composed_response_text") or "").strip()
                 if composed:
+                    if len(composed) > 1200:
+                        composed = composed[:1200].rsplit(" ", 1)[0] + "..."
                     return composed
         except Exception:
             logger.exception("No se pudo aplicar conversation composer (8.2D).")
 
         return response_text
+
+    def _inject_case_progress_narrative(
+        self,
+        *,
+        response_text: str,
+        api_payload: dict[str, Any],
+    ) -> str:
+        narrative = dict(api_payload.get("case_progress_narrative") or {})
+        if not narrative or not narrative.get("applies"):
+            return response_text
+
+        output_mode = self._get_output_mode(api_payload)
+        paragraphs = [
+            str(narrative.get("opening") or "").strip(),
+            str(narrative.get("known_block") or "").strip(),
+            str(narrative.get("contradiction_block") or "").strip(),
+            str(narrative.get("missing_block") or "").strip(),
+            str(narrative.get("progress_block") or "").strip(),
+            str(narrative.get("priority_block") or "").strip(),
+        ]
+        unique_paragraphs = [
+            paragraph
+            for paragraph in paragraphs
+            if paragraph and not self._response_contains_similar_block(response_text, paragraph)
+        ]
+        if not unique_paragraphs:
+            return response_text
+
+        response_paragraphs = self._split_paragraphs(response_text)
+        trailing_question = ""
+        if response_paragraphs and "?" in response_paragraphs[-1]:
+            trailing_question = response_paragraphs.pop()
+
+        if output_mode == "ejecucion":
+            concise = next(
+                (
+                    paragraph
+                    for paragraph in unique_paragraphs
+                    if paragraph.casefold().startswith("con lo que ya esta definido")
+                ),
+                unique_paragraphs[-1],
+            )
+            parts = [*response_paragraphs, concise]
+            if trailing_question:
+                parts.append(trailing_question)
+            return "\n\n".join(part for part in parts if part).strip()
+
+        opening = str(narrative.get("opening") or "").strip()
+        known_block = str(narrative.get("known_block") or "").strip()
+        contradiction_block = str(narrative.get("contradiction_block") or "").strip()
+        missing_block = str(narrative.get("missing_block") or "").strip()
+        progress_block = str(narrative.get("progress_block") or "").strip()
+        priority_block = str(narrative.get("priority_block") or "").strip()
+
+        if output_mode == "estructuracion":
+            preferred_blocks = [known_block, contradiction_block, missing_block, progress_block]
+        elif output_mode == "estrategia":
+            preferred_blocks = [progress_block, contradiction_block, priority_block, missing_block]
+        else:
+            preferred_blocks = [opening, known_block, contradiction_block, progress_block, missing_block, priority_block]
+
+        selected_narrative: list[str] = []
+        for paragraph in preferred_blocks:
+            if not paragraph or paragraph not in unique_paragraphs or paragraph in selected_narrative:
+                continue
+            selected_narrative.append(paragraph)
+            if len(selected_narrative) >= 2:
+                break
+
+        if response_paragraphs and opening in selected_narrative:
+            selected_narrative = [paragraph for paragraph in selected_narrative if paragraph != opening]
+        if not selected_narrative:
+            return response_text
+
+        if response_paragraphs:
+            inline_additions = " ".join(selected_narrative).strip()
+            first_paragraph = response_paragraphs[0]
+            if inline_additions and not self._response_contains_similar_block(first_paragraph, inline_additions):
+                response_paragraphs[0] = f"{first_paragraph} {inline_additions}".strip()
+            parts = response_paragraphs
+        else:
+            parts = selected_narrative
+        if trailing_question:
+            parts.append(trailing_question)
+        return "\n\n".join(part for part in parts if part).strip()
+
+    def _normalize_opening(self, text: str, output_mode: str) -> str:
+        profile = self._current_strategy_composition_profile
+        language_profile = self._current_strategy_language_profile
+        opening_style = str(profile.get("opening_style") or "").strip().lower() if profile else ""
+        preferred_opening = str(language_profile.get("selected_opening") or "").strip()
+        paragraphs = self._split_paragraphs(text)
+        if not paragraphs:
+            return text
+
+        if opening_style == "none":
+            while len(paragraphs) > 1 and not self._paragraph_is_actionable(paragraphs[0]):
+                paragraphs.pop(0)
+            return "\n\n".join(paragraphs).strip()
+
+        generic_openers = (
+            "para orientarte mejor",
+            "para avanzar con una orientacion mas firme",
+            "hay base para orientar",
+        )
+
+        if output_mode == "estructuracion":
+            kept = [paragraph for paragraph in paragraphs if not paragraph.casefold().startswith(generic_openers)]
+            if kept and kept[0].casefold().startswith("con lo que me contaste hasta ahora"):
+                return "\n\n".join(kept).strip()
+            if preferred_opening:
+                return "\n\n".join([preferred_opening, *kept[:3]]).strip()
+            return "\n\n".join([
+                "Con lo que me contaste hasta ahora...",
+                *kept[:3],
+            ]).strip()
+
+        if output_mode == "estrategia":
+            while len(paragraphs) > 1 and paragraphs[0].casefold().startswith(generic_openers + ("con lo que me contaste",)):
+                paragraphs.pop(0)
+            return "\n\n".join(paragraphs).strip()
+
+        if output_mode == "ejecucion":
+            while len(paragraphs) > 1 and not self._paragraph_is_actionable(paragraphs[0]):
+                paragraphs.pop(0)
+            return "\n\n".join(paragraphs).strip()
+
+        return "\n\n".join(paragraphs).strip()
+
+    def _normalize_final_response(self, text: str, *, output_mode: str = "orientacion_inicial") -> str:
+        paragraphs = self._split_paragraphs(text)
+        if not paragraphs:
+            return text
+
+        normalized_paragraphs: list[str] = []
+
+        for paragraph in paragraphs:
+            if any(self._normalize_similarity_text(paragraph) == self._normalize_similarity_text(existing) for existing in normalized_paragraphs):
+                continue
+            if any(
+                min(len(paragraph), len(existing)) > 80 and self._paragraph_similarity(paragraph, existing) > 0.9
+                for existing in normalized_paragraphs
+            ):
+                continue
+            normalized_paragraphs.append(paragraph)
+
+        if output_mode != "orientacion_inicial" and len(normalized_paragraphs) > 4:
+            if "?" in normalized_paragraphs[-1]:
+                normalized_paragraphs = [*normalized_paragraphs[:3], normalized_paragraphs[-1]]
+            else:
+                normalized_paragraphs = normalized_paragraphs[:4]
+        compacted = "\n\n".join(normalized_paragraphs).strip()
+        if len(compacted) > 900:
+            compacted = self._trim_text_by_sentences(compacted, 900)
+        return compacted
+
+    def _normalize_closing(self, text: str, *, has_followup: bool) -> str:
+        profile = self._current_strategy_composition_profile
+        language_profile = self._current_strategy_language_profile
+        case_progress = self._current_case_progress
+        closing_style = str(profile.get("closing_style") or "").strip().lower() if profile else ""
+        compacted = self._sanitize_text(text)
+
+        # Contrato composition → postprocessor:
+        # Si composition ya decidió el cierre (closing_applied) o no autorizó al postprocessor
+        # a agregar uno (allow_postprocessor_closing=False), respetamos esa decisión.
+        composition_metadata = self._current_composition_metadata
+        if composition_metadata and not composition_metadata.get("allow_postprocessor_closing", True):
+            return compacted
+
+        if has_followup or closing_style == "question_only":
+            sentences = self._split_sentences(compacted)
+            question_sentences = [sentence for sentence in sentences if "?" in sentence]
+            if not question_sentences:
+                return compacted
+            final_question = question_sentences[-1]
+            body = " ".join(sentence for sentence in sentences if "?" not in sentence).strip()
+            return f"{body}\n\n{final_question}".strip() if body else final_question
+
+        actionable_closures = (
+            "para avanzar de forma concreta",
+            "si quisieras mover esto ya",
+        )
+        if any(marker in compacted.casefold() for marker in actionable_closures):
+            return compacted
+
+        closing = str(language_profile.get("selected_closing") or "").strip()
+        progress_status = str(case_progress.get("progress_status") or "").strip().lower()
+        next_step_type = str(case_progress.get("next_step_type") or "").strip().lower()
+        if not closing:
+            closing = "Con esto ya podés avanzar con bastante claridad."
+            if closing_style == "action_close":
+                closing = "Con esto ya tenes un siguiente paso concreto para mover el caso."
+            elif closing_style == "analysis_close":
+                closing = "Con esta base, ya se puede sostener una orientacion mas firme del caso."
+        if progress_status == "stalled":
+            closing = "Con esto ya se puede seguir ordenando el caso, pero todavia conviene cerrar el dato que falta."
+        elif next_step_type == "resolve_contradiction":
+            closing = "Antes de avanzar mas, conviene aclarar ese punto inconsistente."
+        elif progress_status == "ready" or next_step_type == "execute":
+            if closing_style == "action_close":
+                closing = "Con esto ya tenes un siguiente paso concreto y bastante definido para mover el caso."
+            elif closing_style != "analysis_close":
+                closing = "Con esta base, ya podes avanzar con un grado de claridad bastante firme."
+        lowered = compacted.casefold()
+        if closing.casefold() in lowered:
+            return compacted
+        if compacted.endswith("?"):
+            return compacted
+        return f"{compacted}\n\n{closing}".strip() if compacted else closing
+
+    def _apply_length_limits(self, text: str, *, output_mode: str) -> str:
+        # Si composition produjo una clarificación (una sola pregunta precisa),
+        # no aplicamos límites — el texto ya es inherentemente corto.
+        composition_metadata = self._current_composition_metadata
+        render_family = str(composition_metadata.get("render_family") or "").strip()
+        if render_family == "clarification":
+            return text
+
+        profile = self._current_strategy_composition_profile
+        if profile and profile.get("max_chars"):
+            limit = self._safe_int(profile.get("max_chars"))
+            if limit > 0:
+                if output_mode == "orientacion_inicial":
+                    return self._trim_orientacion_text(text, limit)
+                if output_mode == "estrategia":
+                    return self._trim_strategy_text(text, limit)
+                return self._trim_text_by_sentences(text, limit)
+        limits = {
+            "orientacion_inicial": 900,
+            "estructuracion": 700,
+            "estrategia": 700,
+            "ejecucion": 600,
+        }
+        limit = limits.get(output_mode, 900)
+        if output_mode == "orientacion_inicial":
+            return self._trim_orientacion_text(text, limit)
+        if output_mode == "estrategia":
+            return self._trim_strategy_text(text, limit)
+        return self._trim_text_by_sentences(text, limit)
+
+    def _trim_text_by_sentences(self, text: str, max_chars: int) -> str:
+        compacted = self._sanitize_text(text)
+        if len(compacted) <= max_chars:
+            return compacted
+
+        question = ""
+        sentences = self._split_sentences(compacted)
+        if sentences and "?" in sentences[-1]:
+            question = sentences[-1]
+            compacted = " ".join(sentences[:-1]).strip()
+
+        paragraphs = self._split_paragraphs(compacted)
+        selected_paragraphs: list[str] = []
+        current_length = len(question) + (2 if question else 0)
+        for paragraph in paragraphs:
+            projected = current_length + len(paragraph) + (2 if selected_paragraphs else 0)
+            if projected <= max_chars:
+                selected_paragraphs.append(paragraph)
+                current_length = projected
+                continue
+            if not selected_paragraphs:
+                selected_paragraphs.append(self._truncate_text(paragraph, max_chars=max_chars - current_length))
+            break
+
+        result = "\n\n".join(part for part in selected_paragraphs if part).strip()
+        if question:
+            return f"{result}\n\n{question}".strip() if result else question
+
+        if result:
+            return result
+
+        sentences = self._split_sentences(compacted)
+        selected: list[str] = []
+        current_length = 0
+        for sentence in sentences:
+            projected = current_length + len(sentence) + (1 if selected else 0)
+            if projected > max_chars:
+                break
+            selected.append(sentence)
+            current_length = projected
+
+        if selected:
+            return " ".join(selected).strip()
+        return self._truncate_text(compacted, max_chars=max_chars)
+
+    def _trim_orientacion_text(self, text: str, max_chars: int) -> str:
+        compacted = self._sanitize_text(text)
+        if len(compacted) <= max_chars:
+            return compacted
+
+        paragraphs = self._split_paragraphs(compacted)
+        if not paragraphs:
+            return self._truncate_text(compacted, max_chars=max_chars)
+
+        kept: list[str] = [paragraphs[0]]
+        remaining = paragraphs[1:]
+        tail: list[str] = []
+        for paragraph in reversed(remaining):
+            candidate = kept + list(reversed(tail + [paragraph]))
+            joined = "\n\n".join(candidate).strip()
+            if len(joined) <= max_chars:
+                tail.append(paragraph)
+            else:
+                break
+        result = "\n\n".join([kept[0], *reversed(tail)]).strip()
+        if len(result) <= max_chars:
+            return result
+        return self._trim_text_by_sentences(result, max_chars)
+
+    def _trim_strategy_text(self, text: str, max_chars: int) -> str:
+        compacted = self._sanitize_text(text)
+        if len(compacted) <= max_chars:
+            return compacted
+
+        paragraphs = self._split_paragraphs(compacted)
+        if not paragraphs:
+            return self._truncate_text(compacted, max_chars=max_chars)
+
+        selected: list[str] = []
+
+        def _add_matching(patterns: tuple[str, ...]) -> None:
+            for paragraph in paragraphs:
+                lowered = paragraph.casefold()
+                if any(pattern in lowered for pattern in patterns) and paragraph not in selected:
+                    selected.append(paragraph)
+                    return
+
+        selected.append(paragraphs[0])
+        _add_matching(("el paso que priorizaria ahora es:", "si tuviera que ordenar el siguiente movimiento"))
+        _add_matching(("la otra via existe, pero hoy queda mas atras:", "como alternativa se puede pensar esta via, pero hoy queda en segundo plano:"))
+
+        if paragraphs and "?" in paragraphs[-1] and paragraphs[-1] not in selected:
+            selected.append(paragraphs[-1])
+
+        candidate = "\n\n".join(selected).strip()
+        if candidate and len(candidate) <= max_chars:
+            return candidate
+        if candidate:
+            return self._trim_text_by_sentences(candidate, max_chars)
+        return self._trim_text_by_sentences(compacted, max_chars)
+
+    def _split_paragraphs(self, text: str) -> list[str]:
+        return [
+            self._normalize_whitespace(part)
+            for part in re.split(r"\n{2,}", str(text or ""))
+            if str(part).strip()
+        ]
+
+    def _split_sentences(self, text: str) -> list[str]:
+        compacted = self._normalize_whitespace(text)
+        if not compacted:
+            return []
+        return [part.strip() for part in re.split(r"(?<=[.!?])\s+", compacted) if part.strip()]
+
+    def _paragraph_similarity(self, left: str, right: str) -> float:
+        return SequenceMatcher(
+            a=self._normalize_similarity_text(left),
+            b=self._normalize_similarity_text(right),
+        ).ratio()
+
+    def _response_contains_similar_block(self, response_text: str, candidate: str) -> bool:
+        candidate_normalized = self._normalize_similarity_text(candidate)
+        if not candidate_normalized:
+            return True
+        for paragraph in self._split_paragraphs(response_text):
+            if self._normalize_similarity_text(paragraph) == candidate_normalized:
+                return True
+            if self._paragraph_similarity(paragraph, candidate) > 0.75:
+                return True
+        return False
+
+    def _normalize_similarity_text(self, text: str) -> str:
+        normalized = re.sub(r"[^\w\s]", "", self._normalize_whitespace(text)).casefold()
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _paragraph_is_actionable(self, paragraph: str) -> bool:
+        lowered = self._normalize_whitespace(paragraph).casefold()
+        return (
+            lowered.startswith("para avanzar de forma concreta")
+            or lowered.startswith("si quisieras mover esto ya")
+            or bool(re.match(r"^\d+\.", lowered))
+        )
+
+    def _has_clear_execution_steps(self, execution_output: dict[str, Any]) -> bool:
+        execution_data = dict(execution_output.get("execution_output") or {})
+        actions = [item for item in list(execution_data.get("what_to_do_now") or []) if str(item or "").strip()]
+        where_to_go = [item for item in list(execution_data.get("where_to_go") or []) if str(item or "").strip()]
+        requests = [item for item in list(execution_data.get("what_to_request") or []) if str(item or "").strip()]
+        documents = [item for item in list(execution_data.get("documents_needed") or []) if str(item or "").strip()]
+        return bool(actions) and (len(actions) >= 2 or bool(where_to_go or requests or documents or execution_output.get("applies")))
 
     # 8.3 — Conversation Memory
 
@@ -693,6 +1039,69 @@ class ResponsePostprocessor:
         except Exception:
             logger.exception("No se pudo persistir conversation_memory (8.3).")
 
+    def _persist_case_memory(
+        self,
+        *,
+        db: Any | None,
+        api_payload: dict[str, Any],
+    ) -> None:
+        """
+        Persiste case_memory en el snapshot del estado de conversación (FASE 13A).
+        También actualiza api_payload["conversation_state"]["case_memory"] para
+        que el próximo turno pueda leerlo como previous_memory.
+        Fallback seguro: si falla, no afecta la respuesta.
+        """
+        if db is None:
+            return
+        case_memory = api_payload.get("case_memory")
+        if not case_memory or not isinstance(case_memory, dict):
+            return
+        conversation_state = api_payload.get("conversation_state")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+        if not conversation_id:
+            return
+        try:
+            api_payload["conversation_state"]["case_memory"] = case_memory
+            conversation_state_service.update_case_memory(
+                db,
+                conversation_id=conversation_id,
+                case_memory=case_memory,
+            )
+        except Exception:
+            logger.exception("No se pudo persistir case_memory (13A).")
+
+    def _persist_case_progress(
+        self,
+        *,
+        db: Any | None,
+        api_payload: dict[str, Any],
+    ) -> None:
+        if db is None:
+            return
+        case_progress = api_payload.get("case_progress")
+        if not case_progress or not isinstance(case_progress, dict):
+            return
+        conversation_state = api_payload.get("conversation_state")
+        if not isinstance(conversation_state, dict) or not conversation_state:
+            return
+        conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+        if not conversation_id:
+            return
+        try:
+            progress_snapshot = dict(api_payload.get("case_progress_snapshot") or {})
+            api_payload["conversation_state"]["case_progress"] = case_progress
+            api_payload["conversation_state"]["case_progress_snapshot"] = progress_snapshot
+            conversation_state_service.update_case_progress(
+                db,
+                conversation_id=conversation_id,
+                case_progress=case_progress,
+                case_progress_snapshot=progress_snapshot,
+            )
+        except Exception:
+            logger.exception("No se pudo persistir case_progress (13B).")
+
     # Conversación y policy
 
     def _attach_conversation_state(
@@ -722,6 +1131,632 @@ class ResponsePostprocessor:
             return
         if snapshot:
             api_payload["conversation_state"] = snapshot
+
+    def _attach_case_state(
+        self,
+        *,
+        db: Any | None,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        conversation_id = self._extract_conversation_id(normalized_input, pipeline_payload, api_payload)
+        if not conversation_id or db is None:
+            return
+        try:
+            enriched_payload = dict(pipeline_payload)
+            enriched_payload["conversation_id"] = conversation_id
+            enriched_payload.setdefault("user_message", normalized_input.get("query"))
+            if api_payload.get("output_mode"):
+                enriched_payload["output_mode"] = api_payload.get("output_mode")
+            if isinstance(api_payload.get("legal_reasoning"), dict):
+                enriched_payload["legal_reasoning"] = api_payload["legal_reasoning"]
+            if api_payload.get("confidence_score") is not None:
+                enriched_payload["confidence_score"] = api_payload.get("confidence_score")
+
+            extracted = case_state_extractor_service.extract_from_pipeline_payload(enriched_payload)
+            case_state_service.get_or_create_case_state(db, conversation_id)
+            turn_index = self._resolve_case_turn_index(api_payload)
+
+            for fact in list(extracted.get("facts") or []):
+                persisted_fact = case_state_service.upsert_case_fact(
+                    db,
+                    conversation_id=conversation_id,
+                    fact_key=str(fact.get("fact_key") or ""),
+                    fact_value=fact.get("fact_value"),
+                    value_type=str(fact.get("value_type") or ""),
+                    domain=str(fact.get("domain") or ""),
+                    source_type=str(fact.get("source_type") or "pipeline_inferred"),
+                    confidence=fact.get("confidence"),
+                    status=str(fact.get("status") or ""),
+                    turn_index=turn_index,
+                    evidence_excerpt=str(fact.get("evidence_excerpt") or ""),
+                )
+                for need in case_state_service.get_case_needs(db, conversation_id):
+                    if (
+                        need.status != "resolved"
+                        and self._need_matches_fact(need_key=need.need_key, resolved_by_fact_key=need.resolved_by_fact_key, fact_key=persisted_fact.fact_key)
+                    ):
+                        case_state_service.resolve_need(
+                            db,
+                            conversation_id=conversation_id,
+                            need_key=need.need_key,
+                            fact_key=persisted_fact.fact_key,
+                        )
+
+            for need in list(extracted.get("needs") or []):
+                persisted_need = case_state_service.upsert_case_need(
+                    db,
+                    conversation_id=conversation_id,
+                    need_key=str(need.get("need_key") or ""),
+                    category=str(need.get("category") or ""),
+                    priority=str(need.get("priority") or ""),
+                    status=str(need.get("status") or "open"),
+                    reason=str(need.get("reason") or ""),
+                    suggested_question=str(need.get("suggested_question") or ""),
+                    resolved_by_fact_key=str(need.get("resolved_by_fact_key") or ""),
+                )
+                matching_fact_key = self._resolve_matching_fact_key(
+                    need_key=str(need.get("need_key") or ""),
+                    resolved_by_fact_key=str(need.get("resolved_by_fact_key") or ""),
+                )
+                if matching_fact_key and case_state_service.fact_is_active(
+                    db,
+                    conversation_id=conversation_id,
+                    fact_key=matching_fact_key,
+                ):
+                    case_state_service.resolve_need(
+                        db,
+                        conversation_id=conversation_id,
+                        need_key=persisted_need.need_key,
+                        fact_key=matching_fact_key,
+                    )
+
+            for event in list(extracted.get("events") or []):
+                case_state_service.append_case_event(
+                    db,
+                    conversation_id=conversation_id,
+                    event_type=str(event.get("event_type") or "case_state_update"),
+                    payload=event.get("payload") if isinstance(event.get("payload"), dict) else {},
+                )
+
+            now_iso = utc_now().isoformat()
+            progression_policy = dict(api_payload.get("progression_policy") or {})
+            progression_stage = str(progression_policy.get("progression_stage") or "").strip()
+            case_stage = str(extracted.get("case_stage") or "")
+            if progression_stage:
+                case_stage = PROGRESSION_TO_CASE_STAGE.get(progression_stage, case_stage)
+            case_state_service.update_case_state(
+                db,
+                conversation_id=conversation_id,
+                case_type=str(extracted.get("case_type") or ""),
+                case_stage=case_stage,
+                primary_goal=str(extracted.get("primary_goal") or ""),
+                secondary_goals_json=list(extracted.get("secondary_goals_json") or []),
+                jurisdiction=str(extracted.get("jurisdiction") or ""),
+                status=str(extracted.get("status") or "active"),
+                confidence_score=extracted.get("confidence_score"),
+                summary_text=str(extracted.get("summary_text") or ""),
+                last_user_turn_at=now_iso,
+                last_system_turn_at=now_iso,
+            )
+            snapshot = case_state_service.build_case_snapshot(db, conversation_id)
+            api_payload["case_state_snapshot"] = snapshot
+            pipeline_payload["case_state_snapshot"] = snapshot
+        except Exception:
+            logger.exception(
+                "No se pudo actualizar el case state persistente.",
+                extra={"conversation_id": conversation_id},
+            )
+
+    def _attach_case_followup(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        snapshot = api_payload.get("case_state_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            return
+        try:
+            followup = case_followup_service.build_case_followup(
+                case_state_snapshot=snapshot,
+                api_payload=api_payload,
+                output_mode=self._get_output_mode(api_payload),
+            )
+            api_payload["case_followup"] = followup
+
+            # FASE 11A — Adaptive follow-up intelligence
+            # Veta o confirma la decision del servicio existente usando la capa adaptativa.
+            # Si falla, la decision original de case_followup_service queda intacta.
+            if followup.get("should_ask"):
+                self._apply_adaptive_followup_veto(
+                    followup=followup,
+                    snapshot=snapshot,
+                    api_payload=api_payload,
+                )
+        except Exception:
+            logger.exception("No se pudo construir case_followup.")
+
+    def _apply_adaptive_followup_veto(
+        self,
+        *,
+        followup: dict[str, Any],
+        snapshot: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        """
+        Aplica la capa adaptativa (Fase 11A) como veto sobre la decision de case_followup_service.
+
+        Lee del estado conversacional:
+          - known_facts     → hechos ya confirmados
+          - missing_facts   → necesidades pendientes con metadatos de importancia
+          - previous_questions → preguntas ya formuladas en turnos anteriores
+          - last_user_messages → para detectar si el usuario sigue aportando info
+
+        Si la capa adaptativa decide no preguntar (loop, completo, baja prioridad),
+        desactiva should_ask en el followup sin eliminar los metadatos internos.
+        """
+        try:
+            conversation_state = dict(api_payload.get("conversation_state") or {})
+            conversation_memory = dict(conversation_state.get("conversation_memory") or {})
+
+            known_facts = self._extract_known_facts_dict(conversation_state)
+            missing_facts = self._extract_missing_facts_list(snapshot)
+            previous_questions = self._extract_previous_questions(
+                conversation_memory=conversation_memory,
+                conversation_state=conversation_state,
+                api_payload=api_payload,
+            )
+            last_user_messages = self._extract_last_user_messages(
+                conversation_memory=conversation_memory,
+                conversation_state=conversation_state,
+                api_payload=api_payload,
+            )
+
+            decision = resolve_followup_decision(
+                known_facts=known_facts,
+                missing_facts=missing_facts,
+                conversation_state=conversation_state,
+                previous_questions=previous_questions,
+                last_user_messages=last_user_messages,
+            )
+            api_payload["adaptive_followup"] = decision
+            followup["adaptive_progress_state"] = str(decision.get("progress_state") or "")
+            followup["adaptive_reason"] = str(decision.get("reason") or "")
+            followup["adaptive_question_type"] = str(decision.get("question_type") or "")
+            followup["detected_loop"] = bool(decision.get("detected_loop"))
+            followup["user_cannot_answer"] = bool(decision.get("user_cannot_answer"))
+            followup["recent_progress"] = bool(decision.get("recent_progress"))
+            followup["stagnation_reason"] = decision.get("stagnation_reason")
+            followup.setdefault("adaptive_override", False)
+            followup.setdefault("adaptive_suppressed", False)
+            case_progress = dict(api_payload.get("case_progress") or {})
+            next_step_type = str(case_progress.get("next_step_type") or "").strip().lower()
+            contradiction_driven = (
+                next_step_type == "resolve_contradiction"
+                or str(followup.get("source") or "").strip().lower() == "case_progress"
+                or str(followup.get("need_key") or "").strip().lower().startswith("contradiction::")
+            )
+
+            if not decision.get("should_ask") and not contradiction_driven:
+                followup["should_ask"] = False
+                followup["question"] = ""
+                followup["adaptive_suppressed"] = True
+            else:
+                priority_question = str(decision.get("priority_question") or "").strip()
+                if priority_question:
+                    followup["should_ask"] = True
+                    followup["question"] = priority_question
+            followup["adaptive_override"] = True
+
+        except Exception:
+            logger.exception("No se pudo aplicar adaptive followup veto (Fase 11A).")
+
+    @staticmethod
+    def _extract_known_facts_dict(conversation_state: dict[str, Any]) -> dict[str, Any]:
+        """Construye un dict {key: value} de hechos conocidos desde conversation_state."""
+        result: dict[str, Any] = {}
+        for item in list(conversation_state.get("known_facts") or []):
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            if key:
+                result[key] = item.get("value")
+        return result
+
+    @staticmethod
+    def _extract_missing_facts_list(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        Extrae missing_facts desde el snapshot de case_state.
+        Cada elemento del snapshot tiene al menos: need_key, category, priority.
+        Los mapea al formato que espera adaptive_followup_service:
+          key, label, importance, impact_on_strategy, suggested_question.
+        """
+        result: list[dict[str, Any]] = []
+        for need in list(snapshot.get("open_needs") or []):
+            if not isinstance(need, dict):
+                continue
+            priority = str(need.get("priority") or "").strip().lower()
+            category = str(need.get("category") or "").strip().lower()
+            need_key = str(need.get("need_key") or "").strip()
+            if not need_key:
+                continue
+            # Map priority/category to importance
+            if priority == "critical":
+                importance = "critical"
+            elif priority == "high":
+                importance = "high"
+            elif priority in {"normal", "medium"}:
+                importance = "medium"
+            else:
+                importance = "low"
+            result.append({
+                "key": need_key,
+                "label": str(need.get("label") or need_key).strip(),
+                "importance": importance,
+                "impact_on_strategy": category in {"procesal", "estrategia"},
+                "suggested_question": str(need.get("suggested_question") or "").strip(),
+            })
+        return result
+
+    @staticmethod
+    def _extract_previous_questions(
+        conversation_memory: dict[str, Any],
+        conversation_state: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> list[str]:
+        """Extrae preguntas previas desde memory y, si falta, desde recent_turns u otras huellas conversacionales."""
+        result: list[str] = []
+        raw = list(conversation_memory.get("asked_questions") or [])
+        result.extend(str(q) for q in raw if str(q).strip())
+
+        for turn in list(conversation_state.get("recent_turns") or []):
+            if not isinstance(turn, dict):
+                continue
+            question = str(
+                turn.get("assistant_question")
+                or turn.get("followup_question")
+                or turn.get("question")
+                or ""
+            ).strip()
+            if question:
+                result.append(question)
+
+        conversational = dict(api_payload.get("conversational") or {})
+        current_question = str(conversational.get("question") or "").strip()
+        if current_question:
+            result.append(current_question)
+
+        return ResponsePostprocessor._dedupe_followup_context_texts(result)
+
+    @staticmethod
+    def _extract_last_user_messages(
+        conversation_memory: dict[str, Any],
+        conversation_state: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> list[str]:
+        """Extrae los últimos mensajes del usuario desde memory y, como fallback, desde recent_turns/query."""
+        result: list[str] = []
+        raw = list(conversation_memory.get("last_user_messages") or [])
+        result.extend(str(m) for m in raw if str(m).strip())
+
+        last_user_message = str(conversation_memory.get("last_user_message") or "").strip()
+        if last_user_message:
+            result.append(last_user_message)
+
+        for turn in list(conversation_state.get("recent_turns") or []):
+            if not isinstance(turn, dict):
+                continue
+            message = str(
+                turn.get("user_message")
+                or turn.get("submitted_text")
+                or turn.get("last_user_answer")
+                or ""
+            ).strip()
+            if message:
+                result.append(message)
+
+        query = str(api_payload.get("query") or "").strip()
+        if query:
+            result.append(query)
+
+        return ResponsePostprocessor._dedupe_followup_context_texts(result)
+
+    @staticmethod
+    def _dedupe_followup_context_texts(items: list[Any]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in items:
+            value = str(item or "").strip()
+            normalized = re.sub(r"[^\w\s]", "", value).casefold()
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(value)
+        return result
+
+    def _attach_case_progress_narrative(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        snapshot = api_payload.get("case_state_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            return
+        try:
+            api_payload["case_progress_narrative"] = case_progress_narrative_service.build_case_progress_narrative(
+                case_state_snapshot=snapshot,
+                api_payload=api_payload,
+                output_mode=self._get_output_mode(api_payload),
+            )
+        except Exception:
+            logger.exception("No se pudo construir case_progress_narrative.")
+
+    def _attach_case_confidence(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        snapshot = api_payload.get("case_state_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            return
+
+        try:
+            conversation_state = dict(api_payload.get("conversation_state") or {})
+            known_facts = self._extract_known_facts_dict(conversation_state)
+            confirmed_facts = dict(snapshot.get("confirmed_facts") or {})
+            probable_facts = dict(snapshot.get("probable_facts") or {})
+            if confirmed_facts:
+                known_facts.update(confirmed_facts)
+            elif probable_facts:
+                known_facts.update(probable_facts)
+
+            api_payload["case_confidence"] = resolve_case_confidence(
+                known_facts=known_facts,
+                missing_facts=self._extract_missing_facts_list(snapshot),
+                conversation_state=conversation_state,
+                case_followup=dict(api_payload.get("case_followup") or {}),
+            )
+        except Exception:
+            logger.exception("No se pudo construir case_confidence.")
+
+    # FASE 13A — Case Memory
+
+    def _attach_case_memory(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        """
+        Construye el case_memory del turno y lo almacena en api_payload["case_memory"].
+
+        Lee case_state_snapshot y conversation_state que ya están en api_payload.
+        Fallback seguro: si falla, api_payload no se modifica.
+        """
+        try:
+            from app.services.case_memory_service import build_case_memory, merge_case_memory
+
+            snapshot = api_payload.get("case_state_snapshot")
+            conversation_state = dict(api_payload.get("conversation_state") or {})
+            previous_memory = conversation_state.get("case_memory")
+            safe_snapshot = snapshot if isinstance(snapshot, dict) else None
+
+            if previous_memory and isinstance(previous_memory, dict):
+                api_payload["case_memory"] = merge_case_memory(
+                    previous_memory=previous_memory,
+                    case_state_snapshot=safe_snapshot,
+                    conversation_state=conversation_state,
+                    api_payload=api_payload,
+                )
+            else:
+                api_payload["case_memory"] = build_case_memory(
+                    case_state_snapshot=safe_snapshot,
+                    conversation_state=conversation_state,
+                    api_payload=api_payload,
+                )
+        except Exception:
+            logger.exception("No se pudo construir case_memory (13A).")
+
+    def _attach_case_progress(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        """
+        Traduce case_memory y señales del pipeline a un estado operativo del caso.
+        Se ubica antes de smart_strategy para dejar una lectura serializable y estable
+        disponible para las capas que siguen, sin acoplarlas al detalle de la memoria.
+        """
+        try:
+            progress = build_case_progress(
+                case_memory=api_payload.get("case_memory"),
+                conversation_state=api_payload.get("conversation_state"),
+                case_state_snapshot=api_payload.get("case_state_snapshot"),
+                api_payload=api_payload,
+            )
+            api_payload["case_progress"] = progress
+            api_payload["case_progress_snapshot"] = extract_case_progress_snapshot(progress)
+            self._case_progress = dict(progress)
+        except Exception:
+            logger.exception("No se pudo construir case_progress (13B).")
+
+    def _attach_smart_strategy(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        snapshot = api_payload.get("case_state_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            return
+
+        try:
+            conversation_state = dict(api_payload.get("conversation_state") or {})
+            known_facts = self._extract_known_facts_dict(conversation_state)
+            confirmed_facts = dict(snapshot.get("confirmed_facts") or {})
+            probable_facts = dict(snapshot.get("probable_facts") or {})
+            if confirmed_facts:
+                known_facts.update(confirmed_facts)
+            elif probable_facts:
+                known_facts.update(probable_facts)
+
+            api_payload["smart_strategy"] = resolve_smart_strategy(
+                known_facts=known_facts,
+                missing_facts=self._extract_missing_facts_list(snapshot),
+                conversation_state=conversation_state,
+                case_followup=dict(api_payload.get("case_followup") or {}),
+                case_confidence=dict(api_payload.get("case_confidence") or {}),
+                output_mode=self._get_output_mode(api_payload),
+                case_progress=dict(api_payload.get("case_progress") or {}),
+            )
+        except Exception:
+            logger.exception("No se pudo construir smart_strategy.")
+
+    def _attach_strategy_composition_profile(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        try:
+            smart_strategy = dict(api_payload.get("smart_strategy") or {})
+            if not smart_strategy:
+                return
+            api_payload["strategy_composition_profile"] = resolve_strategy_composition_profile(
+                smart_strategy,
+                output_mode=self._get_output_mode(api_payload),
+                case_followup=dict(api_payload.get("case_followup") or {}),
+                case_confidence=dict(api_payload.get("case_confidence") or {}),
+            )
+        except Exception:
+            logger.exception("No se pudo construir strategy_composition_profile.")
+
+    def _attach_strategy_language_profile(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        try:
+            smart_strategy = dict(api_payload.get("smart_strategy") or {})
+            if not smart_strategy:
+                return
+            consistency = dict(api_payload.get("consistency_policy") or {})
+            stable_bucket: int | None = consistency.get("stable_variation_bucket")
+            api_payload["strategy_language_profile"] = resolve_strategy_language_profile(
+                smart_strategy,
+                composition_profile=dict(api_payload.get("strategy_composition_profile") or {}),
+                conversation_state=dict(api_payload.get("conversation_state") or {}),
+                output_mode=self._get_output_mode(api_payload),
+                stable_bucket=stable_bucket,
+            )
+        except Exception:
+            logger.exception("No se pudo construir strategy_language_profile.")
+
+    def _attach_consistency_policy(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        try:
+            smart_strategy = dict(api_payload.get("smart_strategy") or {})
+            if not smart_strategy:
+                return
+            api_payload["consistency_policy"] = resolve_consistency_policy(
+                strategy_mode=str(smart_strategy.get("strategy_mode") or ""),
+                output_mode=self._get_output_mode(api_payload),
+                composition_profile=dict(api_payload.get("strategy_composition_profile") or {}),
+                conversation_state=dict(api_payload.get("conversation_state") or {}),
+            )
+        except Exception:
+            logger.exception("No se pudo construir consistency_policy (Fase 12.7).")
+
+    def _get_strategy_composition_profile(self, api_payload: dict[str, Any]) -> dict[str, Any]:
+        profile = dict(api_payload.get("strategy_composition_profile") or {})
+        self._strategy_composition_profile = profile
+        return profile
+
+    @property
+    def _current_strategy_composition_profile(self) -> dict[str, Any]:
+        return dict(getattr(self, "_strategy_composition_profile", {}) or {})
+
+    def _get_strategy_language_profile(self, api_payload: dict[str, Any]) -> dict[str, Any]:
+        profile = dict(api_payload.get("strategy_language_profile") or {})
+        self._strategy_language_profile = profile
+        return profile
+
+    @property
+    def _current_strategy_language_profile(self) -> dict[str, Any]:
+        return dict(getattr(self, "_strategy_language_profile", {}) or {})
+
+    @property
+    def _current_case_progress(self) -> dict[str, Any]:
+        return dict(getattr(self, "_case_progress", {}) or {})
+
+    @property
+    def _current_composition_metadata(self) -> dict[str, Any]:
+        """Metadata producida por resolve_response_composition en este turno."""
+        return dict(getattr(self, "_composition_metadata", {}) or {})
+
+    @staticmethod
+    def _get_smart_strategy_mode(api_payload: dict[str, Any]) -> str:
+        smart_strategy = dict(api_payload.get("smart_strategy") or {})
+        return str(smart_strategy.get("strategy_mode") or "").strip().lower()
+
+    def _attach_case_summary(
+        self,
+        *,
+        db: Any | None,
+        normalized_input: dict[str, Any],
+        pipeline_payload: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> None:
+        snapshot = api_payload.get("case_state_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            return
+
+        try:
+            summary = case_summary_service.build_case_summary(
+                case_state_snapshot=snapshot,
+                api_payload=api_payload,
+                output_mode=self._get_output_mode(api_payload),
+            )
+            api_payload["case_summary"] = summary
+        except Exception:
+            logger.exception("No se pudo construir case_summary.")
+            return
+
+        if not summary.get("applies"):
+            return
+
+        summary_text = str(summary.get("summary_text") or "").strip()
+        if not summary_text:
+            return
+
+        try:
+            snapshot_case_state = dict(snapshot.get("case_state") or {})
+            snapshot_case_state["summary_text"] = summary_text
+            snapshot["case_state"] = snapshot_case_state
+            api_payload["case_state_snapshot"] = snapshot
+            pipeline_payload["case_state_snapshot"] = snapshot
+
+            conversation_id = self._extract_conversation_id(normalized_input, pipeline_payload, api_payload)
+            if db is not None and conversation_id:
+                case_state_service.update_case_summary_text(
+                    db,
+                    conversation_id=conversation_id,
+                    summary_text=summary_text,
+                )
+        except Exception:
+            logger.exception("No se pudo persistir case_summary en case_state.")
+
+    def _attach_case_workspace(
+        self,
+        *,
+        api_payload: dict[str, Any],
+    ) -> None:
+        try:
+            api_payload["case_workspace"] = build_case_workspace(api_payload=api_payload)
+        except Exception:
+            logger.exception("No se pudo construir case_workspace (15A).")
 
     def _attach_dialogue_policy(
         self,
@@ -820,7 +1855,7 @@ class ResponsePostprocessor:
                 }
             rendered = str(execution_output.get("rendered_response_text") or "").strip()
             if execution_output.get("applies") and rendered:
-                return rendered
+                return f"{response_text.strip()}\n\n{rendered}".strip()
         except Exception:
             logger.exception("No se pudo construir execution output (8.5).")
 
@@ -860,7 +1895,7 @@ class ResponsePostprocessor:
             if str(evolved_payload.get("output_mode") or "").strip():
                 api_payload["output_mode"] = evolved_payload["output_mode"]
             rendered = str(progression_policy.get("rendered_response_text") or "").strip()
-            if rendered and progression_policy.get("output_mode") != "orientacion_inicial":
+            if rendered and self._get_output_mode(api_payload) != "orientacion_inicial":
                 return rendered
         except Exception:
             logger.exception("No se pudo resolver progression policy.")
@@ -923,6 +1958,59 @@ class ResponsePostprocessor:
                 return normalized
         return ""
 
+    def _get_output_mode(self, api_payload: dict[str, Any]) -> str:
+        return str(
+            (api_payload.get("progression_policy") or {}).get("output_mode")
+            or "orientacion_inicial"
+        ).strip()
+
+    def _resolve_case_turn_index(self, api_payload: dict[str, Any]) -> int | None:
+        conversation_state = api_payload.get("conversation_state")
+        if isinstance(conversation_state, dict):
+            try:
+                return int(conversation_state.get("turn_count"))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _need_matches_fact(
+        self,
+        *,
+        need_key: Any,
+        resolved_by_fact_key: Any,
+        fact_key: Any,
+    ) -> bool:
+        normalized_fact_key = self._normalize_case_key(fact_key)
+        if not normalized_fact_key:
+            return False
+        explicit_fact_key = self._normalize_case_key(resolved_by_fact_key)
+        if explicit_fact_key and explicit_fact_key == normalized_fact_key:
+            return True
+        normalized_need_key = str(need_key or "").strip()
+        if "::" in normalized_need_key:
+            suffix = normalized_need_key.rsplit("::", 1)[-1]
+            return self._normalize_case_key(suffix) == normalized_fact_key
+        return self._normalize_case_key(normalized_need_key) == normalized_fact_key
+
+    def _resolve_matching_fact_key(
+        self,
+        *,
+        need_key: Any,
+        resolved_by_fact_key: Any,
+    ) -> str:
+        explicit_fact_key = self._normalize_case_key(resolved_by_fact_key)
+        if explicit_fact_key:
+            return explicit_fact_key
+        normalized_need_key = str(need_key or "").strip()
+        if "::" in normalized_need_key:
+            return self._normalize_case_key(normalized_need_key.rsplit("::", 1)[-1])
+        return self._normalize_case_key(normalized_need_key)
+
+    @staticmethod
+    def _normalize_case_key(value: Any) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().casefold()).strip("_")
+        return normalized[:120]
+
     # Construcción de payload
 
     def _build_api_payload(
@@ -983,10 +2071,32 @@ class ResponsePostprocessor:
         parts = [part for part in (reactive_transition, short_answer, applied_analysis, strategic_narrative) if part]
         return "\n\n".join(self._dedupe_lines(parts))
 
-    def _prepend_quick_start(self, response_text: str, quick_start: str | None) -> str:
+    def _prepend_quick_start(
+        self,
+        response_text: str,
+        quick_start: str | None,
+        *,
+        output_mode: Any = None,
+    ) -> str:
         """Insert quick_start at the beginning of response_text if not already present."""
         qs = str(quick_start or "").strip()
         if not qs:
+            return response_text
+        normalized_mode = str(output_mode or "").strip().lower()
+        if normalized_mode and normalized_mode != "orientacion_inicial":
+            return response_text
+        normalized_response = self._normalize_whitespace(response_text).casefold()
+        if "podrias hacer esto" in normalized_response or "podes hacer esto" in normalized_response:
+            return response_text
+        if any(
+            marker in normalized_response for marker in (
+                "manana podrias hacer esto:",
+                "el paso que priorizaria ahora es:",
+                "si tuviera que ordenar el siguiente movimiento",
+                "que presentar:",
+                "que pedir:",
+            )
+        ):
             return response_text
 
         qs_body = self._normalize_quick_start_prefix(qs)

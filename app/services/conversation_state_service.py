@@ -1047,6 +1047,66 @@ class ConversationStateService:
         record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
         db.flush()
 
+    def update_case_memory(
+        self,
+        db: Session,
+        *,
+        conversation_id: str,
+        case_memory: dict[str, Any],
+    ) -> None:
+        """
+        Actualiza solo el campo case_memory del snapshot persistido (FASE 13A).
+        No modifica ningún otro campo del snapshot.
+        """
+        normalized_id = _clean_text(conversation_id)
+        if not normalized_id:
+            return
+        record = (
+            db.query(ConversationStateSnapshot)
+            .filter(ConversationStateSnapshot.conversation_id == normalized_id)
+            .one_or_none()
+        )
+        if record is None:
+            return
+        try:
+            snapshot = json.loads(record.snapshot_json)
+        except (json.JSONDecodeError, TypeError):
+            snapshot = {}
+        snapshot["case_memory"] = dict(case_memory or {})
+        record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
+        db.flush()
+
+    def update_case_progress(
+        self,
+        db: Session,
+        *,
+        conversation_id: str,
+        case_progress: dict[str, Any],
+        case_progress_snapshot: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Actualiza solo case_progress y su snapshot reducido en el estado persistido.
+        Reutiliza el mismo canal JSON del snapshot para mantener compatibilidad.
+        """
+        normalized_id = _clean_text(conversation_id)
+        if not normalized_id:
+            return
+        record = (
+            db.query(ConversationStateSnapshot)
+            .filter(ConversationStateSnapshot.conversation_id == normalized_id)
+            .one_or_none()
+        )
+        if record is None:
+            return
+        try:
+            snapshot = json.loads(record.snapshot_json)
+        except (json.JSONDecodeError, TypeError):
+            snapshot = {}
+        snapshot["case_progress"] = dict(case_progress or {})
+        snapshot["case_progress_snapshot"] = dict(case_progress_snapshot or {})
+        record.snapshot_json = json.dumps(snapshot, ensure_ascii=False)
+        db.flush()
+
     def _normalize_progression_state(self, raw: Any) -> dict[str, Any]:
         data = _as_dict(raw)
         recent_turns: list[dict[str, Any]] = []

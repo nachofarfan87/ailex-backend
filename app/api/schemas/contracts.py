@@ -1,71 +1,79 @@
 """
-AILEX — Contrato común de respuesta jurídica.
+AILEX - Contrato comun de respuesta juridica.
 
-Todas las salidas de análisis, generación, revisión y estrategia
+Todas las salidas de analisis, generacion, revision y estrategia
 deben cumplir con esta estructura para garantizar consistencia
 y trazabilidad.
 
-FORMATO OBLIGATORIO DE SALIDA — 8 secciones canónicas:
+FORMATO OBLIGATORIO DE SALIDA - 8 secciones canonicas:
   resumen_ejecutivo | hechos_relevantes | encuadre_preliminar
   acciones_sugeridas | riesgos_observaciones | fuentes_respaldo
   datos_faltantes | nivel_confianza
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from __future__ import annotations
+
 from enum import Enum
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
 
 
 class SourceType(str, Enum):
     """
     Tipo de fuente documental.
-    Determina el peso relativo, uso en argumentación y jerarquía jurídica.
+    Determina el peso relativo, uso en argumentacion y jerarquia juridica.
 
     Vinculante (mayor peso): codigo, ley, reglamento, acordada
     Referencial: jurisprudencia, doctrina
     Interno (sin peso formal): escritos_estudio, plantillas
     """
-    CODIGO           = "codigo"            # Códigos procesales y de fondo
-    LEY              = "ley"               # Leyes nacionales y provinciales
-    REGLAMENTO       = "reglamento"        # Decretos reglamentarios
-    ACORDADA         = "acordada"          # Acordadas del STJ y Cámaras
-    JURISPRUDENCIA   = "jurisprudencia"    # Fallos y sentencias
-    DOCTRINA         = "doctrina"          # Comentarios doctrinarios, tratados
-    ESCRITOS_ESTUDIO = "escritos_estudio"  # Escritos históricos del estudio
-    PLANTILLAS       = "plantillas"        # Modelos base de escritos
+
+    CODIGO = "codigo"
+    LEY = "ley"
+    REGLAMENTO = "reglamento"
+    ACORDADA = "acordada"
+    JURISPRUDENCIA = "jurisprudencia"
+    DOCTRINA = "doctrina"
+    ESCRITOS_ESTUDIO = "escritos_estudio"
+    PLANTILLAS = "plantillas"
 
 
 class SourceHierarchy(str, Enum):
     """
-    Jerarquía de fuentes documentales.
+    Jerarquia de fuentes documentales.
     Diferencia el peso argumental de cada tipo de fuente.
     """
-    NORMATIVA = "normativa"            # Códigos, leyes, resoluciones — peso máximo
-    JURISPRUDENCIA = "jurisprudencia"  # Fallos, sentencias — peso alto
-    DOCTRINA = "doctrina"              # Tratados, artículos académicos — peso medio, no vinculante
-    INTERNO = "interno"                # Material del estudio — uso práctico, sin peso formal
+
+    NORMATIVA = "normativa"
+    JURISPRUDENCIA = "jurisprudencia"
+    DOCTRINA = "doctrina"
+    INTERNO = "interno"
 
 
 class ConfidenceLevel(str, Enum):
     """Niveles de confianza categorizados."""
-    ALTO = "alto"        # Múltiples fuentes normativas/jurisprudenciales respaldan
-    MEDIO = "medio"      # Algún respaldo documental, pero incompleto
-    BAJO = "bajo"        # Inferencia razonable sin fuente directa
-    SIN_RESPALDO = "sin_respaldo"  # No hay sustento documental
+
+    ALTO = "alto"
+    MEDIO = "medio"
+    BAJO = "bajo"
+    SIN_RESPALDO = "sin_respaldo"
 
 
 class InformationType(str, Enum):
     """
-    Clasificación de cada dato en la respuesta.
+    Clasificacion de cada dato en la respuesta.
     Obligatorio diferenciar para cumplir principios del sistema.
     """
-    EXTRAIDO = "extraido"          # Dato extraído directamente de una fuente
-    INFERENCIA = "inferencia"      # Inferencia razonable a partir de fuentes
-    SUGERENCIA = "sugerencia"      # Sugerencia estratégica del sistema
+
+    EXTRAIDO = "extraido"
+    INFERENCIA = "inferencia"
+    SUGERENCIA = "sugerencia"
 
 
 class SourceCitationSchema(BaseModel):
     """Cita puntual a una fuente documental."""
+
     document_id: Optional[str] = None
     document_title: str
     source_hierarchy: SourceHierarchy
@@ -75,70 +83,173 @@ class SourceCitationSchema(BaseModel):
 
 
 class TaggedFact(BaseModel):
-    """Hecho con clasificación de tipo de información."""
+    """Hecho con clasificacion de tipo de informacion."""
+
     content: str
     info_type: InformationType
     source: Optional[SourceCitationSchema] = None
 
 
 class SuggestedAction(BaseModel):
-    """Acción sugerida con clasificación y riesgos."""
+    """Accion sugerida con clasificacion y riesgos."""
+
     action: str
     info_type: InformationType = InformationType.SUGERENCIA
-    priority: Optional[str] = None  # alta / media / baja
+    priority: Optional[str] = None
     risk: Optional[str] = None
 
 
 class MissingData(BaseModel):
     """Dato faltante detectado."""
+
     description: str
     impact: str = Field(description="Impacto de la ausencia de este dato")
     required_for: Optional[str] = None
 
 
+class CaseWorkspaceFactItem(BaseModel):
+    key: str
+    label: str = ""
+    value: Any | None = None
+    source: str = ""
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    category: str = ""
+    priority: str = ""
+    purpose: str = ""
+
+
+class CaseWorkspaceConflictItem(BaseModel):
+    key: str
+    label: str = ""
+    prev_value: Any | None = None
+    new_value: Any | None = None
+    detected_at: int | None = None
+
+
+class CaseWorkspaceStrategySnapshot(BaseModel):
+    strategy_mode: str = ""
+    response_goal: str = ""
+    reason: str = ""
+    output_mode: str = ""
+    recommended_tone: str = ""
+    recommended_structure: str = ""
+    allow_followup: bool = False
+    prioritize_action: bool = False
+
+
+class CaseWorkspacePrimaryFocus(BaseModel):
+    type: str = ""
+    label: str = ""
+    reason: str = ""
+
+
+class CaseWorkspaceActionItem(BaseModel):
+    id: str
+    step_id: str = ""
+    title: str
+    description: str = ""
+    priority: str = "medium"
+    status: str = "pending"
+    is_primary: bool = False
+    phase: str = ""
+    phase_label: str = ""
+    blocked_by_missing_info: bool = False
+    why_now: str = ""
+    depends_on: list[str] = Field(default_factory=list)
+    why_it_matters: str = ""
+    source_hint: Optional[str] = None
+
+
+class CaseWorkspaceEvidenceItem(BaseModel):
+    key: str
+    label: str
+    description: str = ""
+    reason: str = ""
+    missing_level: str = "recommended"
+    priority_rank: int = 0
+    evidence_role: str = ""
+    why_it_matters: str = ""
+    resolves: list[str] = Field(default_factory=list)
+    supports_step: str = ""
+
+
+class CaseWorkspaceEvidenceChecklist(BaseModel):
+    critical: list[CaseWorkspaceEvidenceItem] = Field(default_factory=list)
+    recommended: list[CaseWorkspaceEvidenceItem] = Field(default_factory=list)
+    optional: list[CaseWorkspaceEvidenceItem] = Field(default_factory=list)
+
+
+class CaseWorkspaceRiskAlert(BaseModel):
+    type: str
+    severity: str = "medium"
+    message: str
+    source: str = ""
+
+
+class ProfessionalHandoff(BaseModel):
+    ready_for_professional_review: bool = False
+    status: str = ""
+    review_readiness: str = ""
+    handoff_reason: str = ""
+    primary_friction: str = ""
+    recommended_professional_focus: str = ""
+    professional_entry_point: str = ""
+    suggested_focus: str = ""
+    open_items: list[str] = Field(default_factory=list)
+    next_question: str = ""
+    summary_for_professional: str = ""
+
+
+class CaseWorkspace(BaseModel):
+    case_id: str
+    workspace_version: str
+    case_status: str
+    case_status_label: str = ""
+    case_status_helper: str = ""
+    operating_phase: str = ""
+    recommended_phase: str = ""
+    recommended_phase_label: str = ""
+    operating_phase_reason: str = ""
+    primary_focus: CaseWorkspacePrimaryFocus = Field(default_factory=CaseWorkspacePrimaryFocus)
+    case_summary: str
+    facts_confirmed: list[CaseWorkspaceFactItem] = Field(default_factory=list)
+    facts_missing: list[CaseWorkspaceFactItem] = Field(default_factory=list)
+    facts_conflicting: list[CaseWorkspaceConflictItem] = Field(default_factory=list)
+    strategy_snapshot: CaseWorkspaceStrategySnapshot = Field(default_factory=CaseWorkspaceStrategySnapshot)
+    action_plan: list[CaseWorkspaceActionItem] = Field(default_factory=list)
+    evidence_checklist: CaseWorkspaceEvidenceChecklist = Field(default_factory=CaseWorkspaceEvidenceChecklist)
+    risk_alerts: list[CaseWorkspaceRiskAlert] = Field(default_factory=list)
+    recommended_next_question: str = ""
+    professional_handoff: ProfessionalHandoff = Field(default_factory=ProfessionalHandoff)
+    last_updated_at: str
+
+
 class JuridicalResponse(BaseModel):
     """
-    Contrato común de respuesta jurídica.
+    Contrato comun de respuesta juridica.
 
-    Toda salida de los módulos de análisis, generación,
-    revisión y estrategia DEBE seguir esta estructura.
+    Toda salida de los modulos de analisis, generacion,
+    revision y estrategia DEBE seguir esta estructura.
 
-    Las 8 secciones canónicas son obligatorias (pueden estar vacías
-    con justificación, pero deben estar presentes).
+    Las 8 secciones canonicas son obligatorias (pueden estar vacias
+    con justificacion, pero deben estar presentes).
     """
-    # 1. Resumen ejecutivo
+
     resumen_ejecutivo: str = Field(description="Resumen ejecutivo de la respuesta")
-
-    # 2. Hechos relevantes (con clasificación de tipo)
     hechos_relevantes: list[TaggedFact] = Field(default_factory=list)
-
-    # 3. Encuadre procesal o jurídico preliminar
     encuadre_preliminar: list[str] = Field(default_factory=list)
-
-    # 4. Acciones sugeridas
     acciones_sugeridas: list[SuggestedAction] = Field(default_factory=list)
-
-    # 5. Riesgos / observaciones
     riesgos_observaciones: list[str] = Field(default_factory=list)
-
-    # 6. Fuentes y respaldo
     fuentes_respaldo: list[SourceCitationSchema] = Field(default_factory=list)
-
-    # 7. Datos faltantes
     datos_faltantes: list[MissingData] = Field(default_factory=list)
-
-    # 8. Nivel de confianza (categórico)
     nivel_confianza: ConfidenceLevel = ConfidenceLevel.SIN_RESPALDO
-
-    # Score numérico (interno — 0.0 a 1.0)
     confianza_score: float = Field(
         default=0.0,
-        ge=0.0, le=1.0,
-        description="Score numérico de confianza (0-1). Derivado automáticamente."
+        ge=0.0,
+        le=1.0,
+        description="Score numerico de confianza (0-1). Derivado automaticamente.",
     )
-
-    # Metadata
-    modulo_origen: str = Field(description="Módulo que generó esta respuesta")
+    modulo_origen: str = Field(description="Modulo que genero esta respuesta")
     session_id: Optional[str] = None
     advertencia_general: Optional[str] = Field(
         default=(
@@ -146,5 +257,5 @@ class JuridicalResponse(BaseModel):
             "No sustituye el criterio del abogado. "
             "Verifique todas las fuentes citadas antes de actuar."
         ),
-        description="Disclaimer obligatorio"
+        description="Disclaimer obligatorio",
     )

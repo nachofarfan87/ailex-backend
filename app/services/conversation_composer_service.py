@@ -272,6 +272,16 @@ def _resolve_output_mode(pipeline_payload: dict[str, Any] | None) -> str:
     return output_mode or "orientacion_inicial"
 
 
+def _resolve_strategy_profile(pipeline_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = pipeline_payload or {}
+    return dict(payload.get("strategy_composition_profile") or {})
+
+
+def _resolve_strategy_language_profile(pipeline_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = pipeline_payload or {}
+    return dict(payload.get("strategy_language_profile") or {})
+
+
 def _resolve_medium_content_limit(
     *,
     turn_type: str,
@@ -524,7 +534,8 @@ def compose(
     conversation_state: dict[str, Any] | None,
     dialogue_policy: dict[str, Any] | None,
     response_text: str,
-    pipeline_payload: dict[str, Any] | None = None,  # reservado para extensiones
+    pipeline_payload: dict[str, Any] | None = None,
+    consistency_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Compone la respuesta conversacional final.
@@ -533,6 +544,10 @@ def compose(
     - variar la apertura si el mismo tipo se usó recientemente
     - decidir agresividad del trim según temas ya explicados
     - reducir mejor la repetición de orientación base
+
+    Fase 12.7: acepta consistency_policy del conversation_consistency_service.
+    Aplica suppress flags y lead_type_whitelist antes de ensamblar partes,
+    garantizando coherencia entre strategy_mode y la respuesta final.
 
     Contrato de salida:
     {
@@ -550,10 +565,14 @@ def compose(
     state = conversation_state or {}
     policy = dialogue_policy or {}
     turn_count = int(state.get("turn_count") or 0)
+    consistency = dict(consistency_policy or {})
 
     # 8.3: extraer memoria conversacional del snapshot
     conversation_memory = state.get("conversation_memory") or {}
     output_mode = _resolve_output_mode(pipeline_payload)
+    strategy_profile = _resolve_strategy_profile(pipeline_payload)
+    strategy_language_profile = _resolve_strategy_language_profile(pipeline_payload)
+    strategy_mode = str(strategy_profile.get("strategy_mode") or "").strip().lower()
 
     # 8.3: determinar si orientación base ya fue explicada
     already_explained_orientation = _was_orientation_explained(conversation_memory)
@@ -563,6 +582,22 @@ def compose(
 
     # 2. Apertura conversacional (8.3: con variación por memoria)
     lead_text = resolve_lead_text(turn_type, state, policy, conversation_memory)
+    if output_mode != "orientacion_inicial":
+        lead_text = ""
+    elif str(strategy_profile.get("opening_style") or "").strip().lower() == "none":
+        lead_text = ""
+    elif str(strategy_language_profile.get("selected_opening") or "").strip():
+        lead_text = str(strategy_language_profile.get("selected_opening") or "").strip()
+
+    # FASE 12.7 — Consistency guard: suppress_lead
+    # Aplicar DESPUÉS de la lógica base para tener el turn_type ya resuelto.
+    if consistency.get("suppress_lead"):
+        lead_text = ""
+    elif consistency.get("lead_type_whitelist") is not None:
+        # Whitelist no-None y vacía → sin lead. Whitelist con valores → filtrar por tipo.
+        whitelist: list[str] = list(consistency["lead_type_whitelist"])
+        if not whitelist or turn_type not in whitelist:
+            lead_text = ""
 
     # 3. Reducción de repetición (8.3: con umbral ajustado por memoria)
     repetition_detected = estimate_repetition(
@@ -579,6 +614,14 @@ def compose(
 
     # 4. Modular profundidad por guidance_strength (8.3: con flag de orientación explicada)
     guidance_strength = str(policy.get("guidance_strength") or "medium")
+    density = str(strategy_profile.get("content_density") or "").strip().lower()
+    if density == "brief":
+        guidance_strength = "low"
+    elif density == "extended":
+        guidance_strength = "high"
+    if output_mode != "orientacion_inicial" and strategy_mode not in {"clarify_critical", "action_first"}:
+        if guidance_strength == "low":
+            guidance_strength = "medium"
     body_text = trim_body_for_strength(
         body_text,
         guidance_strength,
@@ -586,6 +629,16 @@ def compose(
         already_explained_orientation,
         output_mode,
     )
+
+    # FASE 12.7 — Consistency guard: max_body_paragraphs
+    max_body_paragraphs = consistency.get("max_body_paragraphs")
+    if max_body_paragraphs is not None and turn_type != "initial":
+        limit = int(max_body_paragraphs)
+        body_paras_raw = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
+        question_paras_raw = [p for p in body_paras_raw if "?" in p]
+        content_paras_raw = [p for p in body_paras_raw if "?" not in p]
+        if len(content_paras_raw) > limit:
+            body_text = "\n\n".join(content_paras_raw[:limit] + question_paras_raw)
 
     # 5. Frases puente para el flujo del turno
     body_bridge = build_body_bridge(
@@ -596,6 +649,20 @@ def compose(
         output_mode,
     )
     question_intro = build_question_intro(policy, state, output_mode)
+    if output_mode == "orientacion_inicial" and str(strategy_language_profile.get("selected_bridge") or "").strip():
+        body_bridge = str(strategy_language_profile.get("selected_bridge") or "").strip()
+    if str(strategy_language_profile.get("selected_followup_intro") or "").strip():
+        question_intro = str(strategy_language_profile.get("selected_followup_intro") or "").strip()
+    if not bool(strategy_profile.get("allow_followup", True)):
+        question_intro = ""
+    if bool(strategy_profile.get("prioritize_action")):
+        body_bridge = ""
+
+    # FASE 12.7 — Consistency guards: suppress_body_bridge / suppress_question_intro
+    if consistency.get("suppress_body_bridge"):
+        body_bridge = ""
+    if consistency.get("suppress_question_intro"):
+        question_intro = ""
 
     # 6. Ensamblar texto compuesto
     parts: list[str] = []

@@ -70,6 +70,43 @@ def _build_result(*, blocking_factor: str = "none", fallback_used: bool = False)
         },
         "retrieved_items": [],
         "context": {},
+        "case_workspace": {
+            "case_id": "conv-api-workspace",
+            "workspace_version": "case_workspace_v1",
+            "case_status": "structuring_case",
+            "case_summary": "Caso de alimentos en ordenamiento inicial.",
+            "facts_confirmed": [],
+            "facts_missing": [],
+            "facts_conflicting": [],
+            "strategy_snapshot": {
+                "strategy_mode": "guide_next_step",
+                "response_goal": "orientar el siguiente paso util sin sobreexplicar",
+                "reason": "Modo elegido: guide_next_step.",
+                "output_mode": "estructuracion",
+                "recommended_tone": "prudente",
+                "recommended_structure": "guided",
+                "allow_followup": True,
+                "prioritize_action": False,
+            },
+            "action_plan": [],
+            "evidence_checklist": {
+                "critical": [],
+                "recommended": [],
+                "optional": [],
+            },
+            "risk_alerts": [],
+            "recommended_next_question": "",
+            "professional_handoff": {
+                "ready_for_professional_review": False,
+                "status": "structuring_case",
+                "handoff_reason": "El caso esta en etapa de ordenamiento y consolidacion.",
+                "suggested_focus": "Consolidar el estado del caso con la informacion ya disponible.",
+                "open_items": [],
+                "next_question": "",
+                "summary_for_professional": "Caso de alimentos en ordenamiento inicial.",
+            },
+            "last_updated_at": "2026-04-08T00:00:00Z",
+        },
         "generated_document": None,
         "case_domains": ["alimentos"],
     }
@@ -193,6 +230,7 @@ async def test_endpoint_delegates_to_single_orchestrator_and_serializes_response
     assert payload["documents_considered"] == 2
     assert payload["response_text"] == "Respuesta final prudente."
     assert payload["conversational_response"]["domain"] == "alimentos"
+    assert payload["case_workspace"]["workspace_version"] == "case_workspace_v1"
 
 
 @pytest.mark.asyncio
