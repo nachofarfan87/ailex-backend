@@ -13,6 +13,20 @@ _GENERIC_QUESTION_PATTERNS = (
     "contarme mas",
 )
 
+_TECHNICAL_QUESTION_PATTERNS = (
+    "tipo de proceso",
+    "etapa procesal",
+    "encuadre procesal",
+    "competencia",
+)
+
+_EARLY_CASE_STAGES = {
+    "",
+    "recopilacion_hechos",
+    "analisis_estrategico",
+    "early",
+}
+
 
 class CaseFollowupService:
     def build_case_followup(
@@ -89,7 +103,12 @@ class CaseFollowupService:
         question = (
             clarification_behavior["reformulated_question"]
             if clarification_behavior["response_strategy"] == "reformulate_question"
-            else self._build_question_from_need(candidate_need)
+            else self._build_question_from_need(
+                candidate_need,
+                api_payload=api_payload,
+                case_stage=case_stage,
+                output_mode=output_mode,
+            )
         )
         if not self._is_valid_specific_question(question):
             return self._empty_followup("No se detectó una pregunta concreta y accionable para este momento.")
@@ -181,7 +200,12 @@ class CaseFollowupService:
         question = (
             clarification_behavior["reformulated_question"]
             if clarification_behavior["response_strategy"] == "reformulate_question"
-            else self._build_question_from_need(need)
+            else self._build_question_from_need(
+                need,
+                api_payload=api_payload,
+                case_stage=case_stage,
+                output_mode=output_mode,
+            )
         )
         if not self._is_valid_specific_question(question):
             return None
@@ -307,15 +331,43 @@ class CaseFollowupService:
 
         return False
 
-    def _build_question_from_need(self, need: dict[str, Any]) -> str:
+    def _build_question_from_need(
+        self,
+        need: dict[str, Any],
+        *,
+        api_payload: dict[str, Any],
+        case_stage: str,
+        output_mode: str,
+    ) -> str:
         suggested_question = str(need.get("suggested_question") or "").strip()
-        if self._has_valid_suggested_question(suggested_question):
+        if self._has_valid_suggested_question(suggested_question) and self._is_question_user_answerable(
+            suggested_question,
+            need=need,
+            api_payload=api_payload,
+            case_stage=case_stage,
+            output_mode=output_mode,
+        ):
             return self._normalize_question(suggested_question)
 
         fact_key = self._derive_fact_key_from_need(need)
         need_key = str(need.get("need_key") or "").strip().lower()
         category = str(need.get("category") or "").strip().lower()
         need_type = str(need.get("type") or "").strip().lower()
+
+        if self._looks_like_divorce_context(
+            api_payload=api_payload,
+            need=need,
+            question=suggested_question,
+        ):
+            if any(pattern in need_key for pattern in ("tipo_proceso", "etapa_procesal")) or any(
+                pattern in suggested_question.casefold()
+                for pattern in ("tipo de proceso", "etapa procesal")
+            ):
+                return "Â¿El divorcio serÃ­a de comÃºn acuerdo o no?"
+            if fact_key in {"convivencia_actual", "separacion_actual"}:
+                return "Â¿Ya estÃ¡n separados o todavÃ­a conviven?"
+            if fact_key == "hijos":
+                return "Â¿Tienen hijos en comÃºn?"
 
         if need_type == "contradiction":
             label = self._humanize_key(fact_key or need_key)
@@ -337,6 +389,43 @@ class CaseFollowupService:
         if not label:
             return ""
         return f"¿Podés precisar {label}?"
+
+    def _is_question_user_answerable(
+        self,
+        question: str,
+        *,
+        need: dict[str, Any],
+        api_payload: dict[str, Any],
+        case_stage: str,
+        output_mode: str,
+    ) -> bool:
+        normalized = self._normalize_question(question).casefold()
+        if not normalized:
+            return False
+        if case_stage not in _EARLY_CASE_STAGES and output_mode not in {"recopilacion_hechos", "orientacion_inicial"}:
+            return True
+        if not any(pattern in normalized for pattern in _TECHNICAL_QUESTION_PATTERNS):
+            return True
+        return False
+
+    def _looks_like_divorce_context(
+        self,
+        *,
+        api_payload: dict[str, Any],
+        need: dict[str, Any],
+        question: str,
+    ) -> bool:
+        values = [
+            str(api_payload.get("query") or ""),
+            str(api_payload.get("user_query") or ""),
+            str(api_payload.get("quick_start") or ""),
+            str(api_payload.get("response_text") or ""),
+            str(api_payload.get("case_domain") or ""),
+            str(need.get("need_key") or ""),
+            str(question or ""),
+        ]
+        joined = " ".join(value.casefold() for value in values if value).strip()
+        return any(token in joined for token in ("divorcio", "separ", "conyuge", "cÃ³nyuge"))
 
     @staticmethod
     def _need_priority_rank(priority: str) -> int:

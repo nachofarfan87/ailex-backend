@@ -410,6 +410,33 @@ def test_reformula_pregunta_cuando_la_respuesta_no_destraba_el_punto():
     assert followup["adaptive_question_type"] == "reformulation"
 
 
+def test_simplifica_pregunta_tecnica_en_etapa_temprana_de_divorcio():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "procesal::tipo_proceso",
+                    "category": "procesal",
+                    "priority": "critical",
+                    "suggested_question": "Tipo de proceso y etapa procesal",
+                },
+            ],
+            case_stage="recopilacion_hechos",
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "query": "Me quiero separar",
+            "case_domain": "divorcio",
+        },
+        "recopilacion_hechos",
+    )
+
+    assert followup["should_ask"] is True
+    assert "tipo de proceso" not in followup["question"].lower()
+    assert "etapa procesal" not in followup["question"].lower()
+    assert "acuerdo" in followup["question"].lower()
+
+
 def test_no_pregunta_en_loop_si_el_usuario_no_logra_precisar():
     followup = build_case_followup(
         _snapshot(
