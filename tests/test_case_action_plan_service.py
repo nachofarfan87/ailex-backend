@@ -87,3 +87,28 @@ def test_build_case_action_plan_returns_empty_without_signals():
     )
 
     assert plan == []
+
+
+def test_build_case_action_plan_filtra_pasos_academicos_en_bebe():
+    plan = build_case_action_plan(
+        api_payload={
+            "query": "Quiero reclamar alimentos para mi hija de 3 meses",
+            "case_memory": {
+                "facts": {
+                    "hay_hijos": {"value": True, "source": "confirmed", "confidence": 1.0},
+                }
+            },
+            "case_strategy": {
+                "recommended_actions": [
+                    "Acompanhar regularidad academica, plan de estudios y continuidad de asistencia.",
+                    "Reunir partida de nacimiento y prueba basica del vinculo filial.",
+                ]
+            },
+        },
+        case_status="needs_information",
+        operating_phase="clarify",
+    )
+
+    titles = [step["title"] for step in plan]
+    assert any("partida de nacimiento" in title.casefold() for title in titles)
+    assert not any("regularidad academica" in title.casefold() for title in titles)

@@ -302,3 +302,31 @@ def test_backward_compat_sin_case_progress_no_explota():
     # No debe explotar; el resultado puede ser should_ask True o False pero sin excepción
     assert isinstance(followup, dict)
     assert "should_ask" in followup
+
+
+def test_no_repite_followup_si_el_fact_ya_esta_resuelto_en_case_memory():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::aportes_actuales",
+                    "resolved_by_fact_key": "aportes_actuales",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "¿El otro progenitor esta aportando algo actualmente?",
+                },
+            ]
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "case_memory": {
+                "facts": {
+                    "aportes_actuales": {"value": False, "source": "confirmed", "confidence": 1.0},
+                }
+            },
+        },
+        "estructuracion",
+    )
+
+    assert followup["should_ask"] is False
+    assert followup["question"] == ""

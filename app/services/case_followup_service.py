@@ -25,7 +25,10 @@ class CaseFollowupService:
             for item in list(snapshot.get("open_needs") or [])
             if isinstance(item, dict)
         ]
-        confirmed_facts = dict(snapshot.get("confirmed_facts") or {})
+        confirmed_facts = self._collect_resolved_facts(
+            snapshot=snapshot,
+            api_payload=api_payload,
+        )
         case_state = dict(snapshot.get("case_state") or {})
         case_stage = str(case_state.get("case_stage") or "").strip().lower()
         case_progress = dict(api_payload.get("case_progress") or {})
@@ -309,10 +312,51 @@ class CaseFollowupService:
         confirmed_facts: dict[str, Any],
     ) -> bool:
         fact_key = self._derive_fact_key_from_need(need)
-        if fact_key and fact_key in confirmed_facts:
+        if fact_key and self._fact_has_meaningful_value(confirmed_facts.get(fact_key)):
             return True
         normalized_need_key = str(need.get("need_key") or "").strip().lower()
-        return bool(normalized_need_key and normalized_need_key in confirmed_facts)
+        return bool(normalized_need_key and self._fact_has_meaningful_value(confirmed_facts.get(normalized_need_key)))
+
+    def _collect_resolved_facts(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        api_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        resolved: dict[str, Any] = {}
+
+        for source in (
+            dict(snapshot.get("probable_facts") or {}),
+            dict(snapshot.get("confirmed_facts") or {}),
+        ):
+            for key, value in source.items():
+                canonical = self._canonical_key(key)
+                if canonical and self._fact_has_meaningful_value(value):
+                    resolved[canonical] = value
+
+        case_memory = dict(api_payload.get("case_memory") or {})
+        for key, item in dict(case_memory.get("facts") or {}).items():
+            canonical = self._canonical_key(key)
+            value = dict(item or {}).get("value") if isinstance(item, dict) else item
+            if canonical and self._fact_has_meaningful_value(value):
+                resolved[canonical] = value
+
+        conversation_state = dict(api_payload.get("conversation_state") or {})
+        known_facts_map = dict(conversation_state.get("known_facts_map") or {})
+        for key, value in known_facts_map.items():
+            canonical = self._canonical_key(key)
+            if canonical and self._fact_has_meaningful_value(value):
+                resolved[canonical] = value
+
+        for item in list(conversation_state.get("known_facts") or []):
+            if not isinstance(item, dict):
+                continue
+            canonical = self._canonical_key(item.get("key") or item.get("fact_key"))
+            value = item.get("value")
+            if canonical and self._fact_has_meaningful_value(value):
+                resolved[canonical] = value
+
+        return resolved
 
     def _derive_fact_key_from_need(self, need: dict[str, Any]) -> str:
         explicit = self._canonical_key(need.get("resolved_by_fact_key"))
@@ -383,6 +427,15 @@ class CaseFollowupService:
     def _canonical_key(value: Any) -> str:
         normalized = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().casefold()).strip("_")
         return normalized[:120]
+
+    @staticmethod
+    def _fact_has_meaningful_value(value: Any) -> bool:
+        if value in (None, "", [], {}):
+            return False
+        if isinstance(value, str):
+            normalized = re.sub(r"\s+", " ", value.strip().casefold())
+            return normalized not in {"desconocido", "sin dato", "pendiente"}
+        return True
 
     def _select_progress_driven_critical_need(
         self,

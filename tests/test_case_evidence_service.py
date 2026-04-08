@@ -143,3 +143,51 @@ def test_build_case_evidence_checklist_links_relevant_items_to_action_plan():
     )
 
     assert checklist["critical"][0]["supports_step"] == "clarify_jurisdiccion"
+
+
+def test_build_case_evidence_checklist_filtra_requisitos_academicos_en_bebe():
+    checklist = build_case_evidence_checklist(
+        api_payload={
+            "query": "Quiero reclamar alimentos para mi hija de 3 meses",
+            "case_memory": {
+                "facts": {
+                    "hay_hijos": {"value": True, "source": "confirmed", "confidence": 1.0},
+                }
+            },
+            "case_theory": {
+                "evidentiary_needs": [
+                    "Acompanhar regularidad academica, plan de estudios y continuidad de asistencia.",
+                    "Partida de nacimiento del hijo.",
+                ]
+            },
+        }
+    )
+
+    all_labels = [item["label"] for bucket in checklist.values() for item in bucket]
+    assert "Partida de nacimiento del hijo." in all_labels
+    assert not any("regularidad academica" in label.casefold() for label in all_labels)
+
+
+def test_build_case_evidence_checklist_deduplica_vinculo_filial_y_partida():
+    checklist = build_case_evidence_checklist(
+        api_payload={
+            "evidence_reasoning_links": {
+                "critical_evidentiary_gaps": [
+                    "Partida de nacimiento del hijo.",
+                    "Partida de nacimiento u otra acreditacion del vinculo filial.",
+                ],
+            },
+            "conflict_evidence": {
+                "key_evidence_missing": [
+                    "Partidas de nacimiento y documentacion del grupo familiar.",
+                ],
+            },
+        }
+    )
+
+    all_labels = [item["label"] for bucket in checklist.values() for item in bucket]
+    family_link_items = [
+        label for label in all_labels
+        if "partida de nacimiento" in label.casefold() or "vinculo filial" in label.casefold()
+    ]
+    assert len(family_link_items) == 1

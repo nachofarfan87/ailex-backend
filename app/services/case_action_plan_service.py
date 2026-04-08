@@ -13,6 +13,7 @@ def build_case_action_plan(
     payload = dict(api_payload or {})
     status = str(case_status or "").strip().lower()
     phase = str(operating_phase or "").strip().lower()
+    context = _build_case_context(payload)
 
     steps: list[dict[str, Any]] = []
     unblock_steps = _build_unblock_steps(payload, case_status=status, operating_phase=phase)
@@ -26,6 +27,7 @@ def build_case_action_plan(
             blocker_ids=blocker_ids,
             case_status=status,
             operating_phase=phase,
+            context=context,
         )
         if step:
             steps.append(step)
@@ -208,9 +210,12 @@ def _materialize_action_step(
     blocker_ids: list[str],
     case_status: str,
     operating_phase: str,
+    context: dict[str, Any],
 ) -> dict[str, Any] | None:
     text = str(candidate.get("text") or "").strip()
     if not text:
+        return None
+    if _step_is_inapplicable(text, context=context):
         return None
 
     kind = str(candidate.get("kind") or "")
@@ -469,3 +474,84 @@ def _looks_like_proof(value: str) -> bool:
         token in value
         for token in ("prueba", "acreditar", "document", "comprobante", "constancia", "partida", "dni")
     )
+
+
+def _step_is_inapplicable(text: str, *, context: dict[str, Any]) -> bool:
+    normalized = _normalize_text(text)
+    if _contains_student_requirement(normalized):
+        age_years = context.get("child_age_years")
+        if age_years is not None and age_years < 5:
+            return True
+        if context.get("has_minor_children") and age_years is None:
+            return True
+    if any(token in normalized for token in ("art 663", "art. 663", "hijo mayor estudiante")) and context.get("has_minor_children"):
+        return True
+    return False
+
+
+def _contains_student_requirement(text: str) -> bool:
+    return any(
+        token in text
+        for token in (
+            "regularidad academica",
+            "alumno regular",
+            "plan de estudios",
+            "continuidad de asistencia",
+            "escolaridad",
+            "certificado de estudios",
+        )
+    )
+
+
+def _build_case_context(payload: dict[str, Any]) -> dict[str, Any]:
+    facts: dict[str, Any] = {}
+    case_memory = dict(payload.get("case_memory") or {})
+    for key, value in dict(case_memory.get("facts") or {}).items():
+        facts[str(key)] = dict(value or {}).get("value") if isinstance(value, dict) else value
+    facts.update(dict(payload.get("facts") or {}))
+    facts.update(dict((payload.get("conversation_state") or {}).get("known_facts_map") or {}))
+
+    query = _normalize_text(payload.get("query") or payload.get("effective_query") or "")
+    age_years = _resolve_child_age_years(facts, query)
+    return {
+        "child_age_years": age_years,
+        "has_minor_children": bool(
+            facts.get("hay_hijos")
+            or facts.get("has_children")
+            or (age_years is not None and age_years < 18)
+            or re.search(r"\b\d+\s*(mes|meses)\b", query)
+            or (re.search(r"\b\d+\s*(ano|anos|año|años)\b", query) and (age_years or 0) < 18)
+        ),
+    }
+
+
+def _resolve_child_age_years(facts: dict[str, Any], query: str) -> float | None:
+    for key in ("edad_hijo", "edad_hija", "edad_hijos", "child_age"):
+        resolved = _numeric_age_to_years(facts.get(key))
+        if resolved is not None:
+            return resolved
+    months_match = re.search(r"\b(\d+)\s*(mes|meses)\b", query)
+    if months_match:
+        return round(int(months_match.group(1)) / 12.0, 2)
+    years_match = re.search(r"\b(\d+)\s*(ano|anos|año|años)\b", query)
+    if years_match:
+        return float(years_match.group(1))
+    return None
+
+
+def _numeric_age_to_years(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = _normalize_text(value)
+    if not text:
+        return None
+    months_match = re.search(r"\b(\d+)\s*(mes|meses)\b", text)
+    if months_match:
+        return round(int(months_match.group(1)) / 12.0, 2)
+    years_match = re.search(r"\b(\d+)\s*(ano|anos|año|años)\b", text)
+    if years_match:
+        return float(years_match.group(1))
+    try:
+        return float(text)
+    except ValueError:
+        return None
