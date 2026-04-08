@@ -685,12 +685,25 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
             selected_question = None
     question_slot_key = _infer_question_slot_key(selected_question, question_candidates)
 
+    response_quality = _clean_text(clarification_context.get("response_quality")).lower()
+    response_strategy = _clean_text(clarification_context.get("response_strategy")).lower()
+    reformulated_question = _clean_text(clarification_context.get("reformulated_question"))
+    limit_explanation = _clean_text(clarification_context.get("limit_explanation"))
+    hybrid_guidance = _clean_text(clarification_context.get("hybrid_guidance"))
     precision_prompt = _clean_text(clarification_context.get("precision_prompt"))
     precision_required = bool(clarification_context.get("precision_required")) and bool(precision_prompt)
-    if precision_required:
+    if response_strategy == "reformulate_question" and reformulated_question:
+        selected_question = _clean_question(reformulated_question)
+        should_ask_first = True
+        guided_response = _first_nonempty_text(limit_explanation, hybrid_guidance, reformulated_question)
+        if memory_phrase and guided_response:
+            guided_response = f"{memory_phrase} {guided_response}".strip()
+    elif precision_required:
         selected_question = _clean_question(precision_prompt)
         should_ask_first = True
-        guided_response = f"{memory_phrase} {precision_prompt}".strip() if memory_phrase else precision_prompt
+        guided_response = _first_nonempty_text(limit_explanation, precision_prompt)
+        if memory_phrase and guided_response:
+            guided_response = f"{memory_phrase} {guided_response}".strip()
     else:
         should_ask_first = _should_ask_first(
             response,
@@ -711,6 +724,8 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         )
         if memory_phrase and guided_response:
             guided_response = f"{memory_phrase} {guided_response}".strip()
+        if response_strategy == "advance_with_prudence" and not should_ask_first and hybrid_guidance:
+            message = f"{message} {hybrid_guidance}".strip()
     if not should_ask_first and _should_close_clarification(
         response,
         critical_missing=critical_missing,
@@ -749,7 +764,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         "should_ask_first": should_ask_first,
         "guided_response": guided_response,
         "known_facts": known_facts,
-        "clarification_status": _clean_text(clarification_context.get("answer_status")) or "none",
+        "clarification_status": response_quality or _clean_text(clarification_context.get("answer_status")) or "none",
         "asked_questions": _dedupe_strs(
             [
                 *_as_str_list(clarification_context.get("asked_questions")),

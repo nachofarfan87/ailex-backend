@@ -90,3 +90,50 @@ def test_divorcio_convenio_answer_extracts_arrangement_facts_and_keeps_textual_d
     assert "hay convenio regulador" in prepared.effective_query.lower()
     assert "detalle textual del usuario" in prepared.effective_query.lower()
     assert "20% de mi sueldo" in prepared.effective_query.lower()
+
+
+def test_alimentos_si_corto_se_interpreta_y_permita_avanzar():
+    prepared = prepare_legal_query_turn(
+        query="Si",
+        facts={},
+        metadata={
+            "clarification_context": {
+                "base_query": "Quiero iniciar alimentos para mi hijo",
+                "case_domain": "alimentos",
+                "last_question": "¿El otro padre o madre le pasa algo de plata actualmente?",
+                "asked_questions": ["¿El otro padre o madre le pasa algo de plata actualmente?"],
+                "known_facts": {},
+            }
+        },
+    )
+
+    context = prepared.metadata["clarification_context"]
+
+    assert context["answer_status"] == "precise"
+    assert context["response_quality"] == "short_valid"
+    assert context["response_strategy"] == "advance"
+    assert context["known_facts"]["aportes_actuales"] is True
+    assert prepared.effective_query == "Quiero iniciar alimentos para mi hijo"
+
+
+def test_followup_ambiguo_mantiene_limite_y_repregunta():
+    prepared = prepare_legal_query_turn(
+        query="No se",
+        facts={},
+        metadata={
+            "clarification_context": {
+                "base_query": "Quiero iniciar alimentos para mi hijo",
+                "case_domain": "alimentos",
+                "last_question": "¿El otro padre o madre le pasa algo de plata actualmente?",
+                "asked_questions": ["¿El otro padre o madre le pasa algo de plata actualmente?"],
+                "known_facts": {},
+            }
+        },
+    )
+
+    context = prepared.metadata["clarification_context"]
+
+    assert context["response_quality"] == "ambiguous"
+    assert context["response_strategy"] == "clarify"
+    assert context["precision_required"] is True
+    assert context["limit_explanation"]

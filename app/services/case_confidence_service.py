@@ -57,6 +57,8 @@ def resolve_case_confidence(
     progress_state = _resolve_progress_state(conversation_state, case_followup)
     user_cannot_answer = _resolve_boolean_signal("user_cannot_answer", conversation_state, case_followup)
     detected_loop = _resolve_boolean_signal("detected_loop", conversation_state, case_followup)
+    response_quality = _resolve_text_signal("response_quality", conversation_state, case_followup)
+    response_strategy = _resolve_text_signal("response_strategy", conversation_state, case_followup)
 
     known_score = _score_known_facts(known_facts)
     missing_score = _score_missing_facts(missing_facts)
@@ -68,6 +70,8 @@ def resolve_case_confidence(
         progress_state=progress_state,
         user_cannot_answer=user_cannot_answer,
         detected_loop=detected_loop,
+        response_quality=response_quality,
+        response_strategy=response_strategy,
     )
     confidence_level = _resolve_confidence_level(confidence_score)
     case_stage = _resolve_case_stage(
@@ -80,6 +84,8 @@ def resolve_case_confidence(
         progress_state=progress_state,
         user_cannot_answer=user_cannot_answer,
         detected_loop=detected_loop,
+        response_quality=response_quality,
+        response_strategy=response_strategy,
         case_followup=case_followup,
         completeness_score=completeness_score,
     )
@@ -92,6 +98,8 @@ def resolve_case_confidence(
         progress_state=progress_state,
         user_cannot_answer=user_cannot_answer,
         detected_loop=detected_loop,
+        response_quality=response_quality,
+        response_strategy=response_strategy,
         needs_more_questions=needs_more_questions,
     )
 
@@ -111,6 +119,8 @@ def resolve_case_confidence(
             missing_facts=missing_facts,
             user_cannot_answer=user_cannot_answer,
             detected_loop=detected_loop,
+            response_quality=response_quality,
+            response_strategy=response_strategy,
         ),
     }
 
@@ -154,6 +164,8 @@ def _resolve_confidence_score(
     progress_state: str,
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
 ) -> float:
     score = completeness_score
     if _has_critical_missing(missing_facts):
@@ -171,6 +183,16 @@ def _resolve_confidence_score(
     if user_cannot_answer:
         score -= 0.08
     if detected_loop:
+        score -= 0.08
+    if response_quality == "ambiguous":
+        score -= 0.08
+    elif response_quality == "insufficient":
+        score -= 0.12
+    elif response_quality == "contradictory":
+        score -= 0.18
+    if response_strategy == "advance_with_prudence":
+        score -= 0.05
+    elif response_strategy == "reformulate_question":
         score -= 0.08
     return _clamp(score)
 
@@ -205,6 +227,8 @@ def _resolve_needs_more_questions(
     progress_state: str,
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
     case_followup: dict[str, Any],
     completeness_score: float,
 ) -> bool:
@@ -212,6 +236,12 @@ def _resolve_needs_more_questions(
         return False
     if user_cannot_answer or detected_loop:
         return False
+    if response_strategy == "advance_with_prudence":
+        return False
+    if response_strategy in {"clarify", "reformulate_question"}:
+        return True
+    if response_quality in {"ambiguous", "insufficient", "contradictory"} and bool(case_followup.get("should_ask")):
+        return True
     if completeness_score >= 0.82 and not _has_critical_missing(missing_facts):
         return False
     if bool(case_followup.get("should_ask")):
@@ -235,10 +265,16 @@ def _resolve_closure_readiness(
     progress_state: str,
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
     needs_more_questions: bool,
 ) -> str:
     if progress_state == "complete":
         return "high"
+    if response_strategy == "advance_with_prudence":
+        return "medium" if completeness_score >= 0.35 else "low"
+    if response_quality in {"ambiguous", "insufficient", "contradictory"}:
+        return "medium" if completeness_score >= 0.55 else "low"
     if user_cannot_answer or detected_loop:
         return "high" if completeness_score >= 0.35 else "medium"
     if not needs_more_questions and completeness_score >= 0.55:
@@ -271,6 +307,18 @@ def _resolve_boolean_signal(key: str, conversation_state: dict[str, Any], case_f
     return bool(progress_signals.get(key))
 
 
+def _resolve_text_signal(key: str, conversation_state: dict[str, Any], case_followup: dict[str, Any]) -> str:
+    for container in (
+        case_followup,
+        conversation_state,
+        dict(conversation_state.get("progress_signals") or {}),
+    ):
+        value = str(container.get(key) or "").strip().lower()
+        if value:
+            return value
+    return ""
+
+
 def _has_critical_missing(missing_facts: list[dict[str, Any]]) -> bool:
     return any(str(item.get("importance") or "").strip().lower() == "critical" for item in missing_facts)
 
@@ -294,6 +342,8 @@ def _build_reason(
     missing_facts: list[dict[str, Any]],
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
 ) -> str:
     fragments = [
         f"Base conocida: {len(known_facts)} hechos.",
@@ -309,6 +359,10 @@ def _build_reason(
         fragments.append("El usuario no puede aportar mas datos utiles por ahora.")
     if detected_loop:
         fragments.append("Se detecto redundancia reciente en el follow-up.")
+    if response_quality:
+        fragments.append(f"Calidad de respuesta: {response_quality}.")
+    if response_strategy:
+        fragments.append(f"Estrategia conversacional: {response_strategy}.")
     return " ".join(fragments)
 
 

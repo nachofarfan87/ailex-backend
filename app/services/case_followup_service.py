@@ -38,6 +38,13 @@ class CaseFollowupService:
         case_state = dict(snapshot.get("case_state") or {})
         case_stage = str(case_state.get("case_stage") or "").strip().lower()
         case_progress = dict(api_payload.get("case_progress") or {})
+        clarification_behavior = self._extract_clarification_behavior(api_payload)
+
+        if clarification_behavior["response_strategy"] == "advance_with_prudence":
+            return self._empty_followup(
+                clarification_behavior["reason"]
+                or "La respuesta actual permite seguir orientando con prudencia sin insistir con otra pregunta."
+            )
 
         progress_driven = self._build_progress_driven_followup(
             open_needs=open_needs,
@@ -48,6 +55,7 @@ class CaseFollowupService:
             api_payload=api_payload,
             case_stage=case_stage,
             output_mode=output_mode,
+            clarification_behavior=clarification_behavior,
         )
         if progress_driven is not None:
             return progress_driven
@@ -64,6 +72,12 @@ class CaseFollowupService:
         if candidate_need is None:
             return self._empty_followup("No hay una necesidad dominante pendiente que justifique una pregunta final.")
 
+        if clarification_behavior["detected_loop"] or clarification_behavior["user_cannot_answer"]:
+            return self._empty_followup(
+                clarification_behavior["reason"]
+                or "La respuesta actual no destraba mas el caso y no conviene insistir con la misma pregunta."
+            )
+
         if not self._should_ask_followup(
             candidate_need=candidate_need,
             case_stage=case_stage,
@@ -72,17 +86,30 @@ class CaseFollowupService:
         ):
             return self._empty_followup("Hay suficiente información para avanzar sin follow-up.")
 
-        question = self._build_question_from_need(candidate_need)
+        question = (
+            clarification_behavior["reformulated_question"]
+            if clarification_behavior["response_strategy"] == "reformulate_question"
+            else self._build_question_from_need(candidate_need)
+        )
         if not self._is_valid_specific_question(question):
             return self._empty_followup("No se detectó una pregunta concreta y accionable para este momento.")
 
         return {
             "should_ask": True,
             "question": question,
-            "reason": self._build_reason(candidate_need, output_mode=output_mode, case_stage=case_stage),
+            "reason": clarification_behavior["reason"] or self._build_reason(candidate_need, output_mode=output_mode, case_stage=case_stage),
             "source": str(candidate_need.get("source") or "case_need"),
             "priority": str(candidate_need.get("priority") or "").strip().lower(),
             "need_key": str(candidate_need.get("need_key") or "").strip(),
+            "adaptive_question_type": (
+                "reformulation"
+                if clarification_behavior["response_strategy"] == "reformulate_question"
+                else str(candidate_need.get("type") or "").strip().lower()
+            ),
+            "response_quality": clarification_behavior["response_quality"],
+            "response_strategy": clarification_behavior["response_strategy"],
+            "detected_loop": clarification_behavior["detected_loop"],
+            "user_cannot_answer": clarification_behavior["user_cannot_answer"],
         }
 
     def _build_progress_driven_followup(
@@ -96,6 +123,7 @@ class CaseFollowupService:
         api_payload: dict[str, Any],
         case_stage: str,
         output_mode: str,
+        clarification_behavior: dict[str, Any],
     ) -> dict[str, Any] | None:
         next_step_type = str(case_progress.get("next_step_type") or "").strip().lower()
         if next_step_type == "resolve_contradiction":
@@ -111,6 +139,7 @@ class CaseFollowupService:
                 api_payload=api_payload,
                 case_stage=case_stage,
                 output_mode=output_mode,
+                clarification_behavior=clarification_behavior,
             )
 
         if next_step_type == "ask":
@@ -125,6 +154,7 @@ class CaseFollowupService:
                 api_payload=api_payload,
                 case_stage=case_stage,
                 output_mode=output_mode,
+                clarification_behavior=clarification_behavior,
             )
         return None
 
@@ -135,8 +165,11 @@ class CaseFollowupService:
         api_payload: dict[str, Any],
         case_stage: str,
         output_mode: str,
+        clarification_behavior: dict[str, Any],
     ) -> dict[str, Any] | None:
         if need is None:
+            return None
+        if clarification_behavior["detected_loop"] or clarification_behavior["user_cannot_answer"]:
             return None
         if not self._should_ask_followup(
             candidate_need=need,
@@ -145,16 +178,29 @@ class CaseFollowupService:
             output_mode=output_mode,
         ):
             return None
-        question = self._build_question_from_need(need)
+        question = (
+            clarification_behavior["reformulated_question"]
+            if clarification_behavior["response_strategy"] == "reformulate_question"
+            else self._build_question_from_need(need)
+        )
         if not self._is_valid_specific_question(question):
             return None
         return {
             "should_ask": True,
             "question": question,
-            "reason": self._build_reason(need, output_mode=output_mode, case_stage=case_stage),
+            "reason": clarification_behavior["reason"] or self._build_reason(need, output_mode=output_mode, case_stage=case_stage),
             "source": str(need.get("source") or "case_progress"),
             "priority": str(need.get("priority") or "critical").strip().lower(),
             "need_key": str(need.get("need_key") or "").strip(),
+            "adaptive_question_type": (
+                "reformulation"
+                if clarification_behavior["response_strategy"] == "reformulate_question"
+                else str(need.get("type") or "").strip().lower()
+            ),
+            "response_quality": clarification_behavior["response_quality"],
+            "response_strategy": clarification_behavior["response_strategy"],
+            "detected_loop": clarification_behavior["detected_loop"],
+            "user_cannot_answer": clarification_behavior["user_cannot_answer"],
         }
 
     def _select_candidate_need(
@@ -536,6 +582,26 @@ class CaseFollowupService:
             "category": "hecho",
             "reason": "Primero conviene aclarar la contradicción relevante antes de seguir avanzando.",
             "source": "case_progress",
+        }
+
+    def _extract_clarification_behavior(self, api_payload: dict[str, Any]) -> dict[str, Any]:
+        metadata = dict(api_payload.get("metadata") or {})
+        clarification_context = dict(metadata.get("clarification_context") or {})
+        return {
+            "response_quality": str(clarification_context.get("response_quality") or "").strip().lower(),
+            "response_strategy": str(clarification_context.get("response_strategy") or "").strip().lower(),
+            "reformulated_question": str(
+                clarification_context.get("reformulated_question")
+                or clarification_context.get("precision_prompt")
+                or ""
+            ).strip(),
+            "reason": str(
+                clarification_context.get("limit_explanation")
+                or clarification_context.get("hybrid_guidance")
+                or ""
+            ).strip(),
+            "detected_loop": bool(clarification_context.get("detected_loop")),
+            "user_cannot_answer": bool(clarification_context.get("user_cannot_answer")),
         }
 
     @staticmethod

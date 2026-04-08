@@ -69,6 +69,8 @@ def resolve_smart_strategy(
     progress_state = _resolve_progress_state(conversation_state, case_followup)
     user_cannot_answer = _resolve_boolean_signal("user_cannot_answer", conversation_state, case_followup)
     detected_loop = _resolve_boolean_signal("detected_loop", conversation_state, case_followup)
+    response_quality = _resolve_text_signal("response_quality", conversation_state, case_followup)
+    response_strategy = _resolve_text_signal("response_strategy", conversation_state, case_followup)
 
     confidence_level = str(case_confidence.get("confidence_level") or "low").strip().lower()
     confidence_score = _safe_float(case_confidence.get("confidence_score"), default=0.0)
@@ -87,6 +89,8 @@ def resolve_smart_strategy(
         progress_state=progress_state,
         user_cannot_answer=user_cannot_answer,
         detected_loop=detected_loop,
+        response_quality=response_quality,
+        response_strategy=response_strategy,
         needs_more_questions=needs_more_questions,
         confidence_level=confidence_level,
         confidence_score=confidence_score,
@@ -134,6 +138,8 @@ def resolve_smart_strategy(
             urgency=urgency,
             user_cannot_answer=user_cannot_answer,
             detected_loop=detected_loop,
+            response_quality=response_quality,
+            response_strategy=response_strategy,
             structural_fact_count=structural_fact_count,
             output_mode=normalized_output_mode,
             case_progress=progress_signals,
@@ -190,6 +196,8 @@ def _resolve_strategy_mode(
     progress_state: str,
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
     needs_more_questions: bool,
     confidence_level: str,
     confidence_score: float,
@@ -203,6 +211,20 @@ def _resolve_strategy_mode(
     case_progress: dict[str, Any],
 ) -> str:
     should_ask = bool(case_followup.get("should_ask"))
+
+    if response_quality == "contradictory":
+        return "clarify_critical" if should_ask else "orient_with_prudence"
+
+    if response_strategy == "reformulate_question":
+        return "clarify_critical" if should_ask else "orient_with_prudence"
+
+    if response_strategy == "clarify":
+        return "clarify_critical" if should_ask else "orient_with_prudence"
+
+    if response_strategy == "advance_with_prudence":
+        if urgency and not should_ask:
+            return "action_first"
+        return "orient_with_prudence"
 
     if urgency:
         return "action_first"
@@ -384,6 +406,18 @@ def _resolve_boolean_signal(key: str, conversation_state: dict[str, Any], case_f
     return bool(dict(conversation_state.get("progress_signals") or {}).get(key))
 
 
+def _resolve_text_signal(key: str, conversation_state: dict[str, Any], case_followup: dict[str, Any]) -> str:
+    for container in (
+        case_followup,
+        conversation_state,
+        dict(conversation_state.get("progress_signals") or {}),
+    ):
+        value = str(container.get(key) or "").strip().lower()
+        if value:
+            return value
+    return ""
+
+
 def _resolve_case_progress_signals(case_progress: dict[str, Any]) -> dict[str, Any]:
     """
     Traduce case_progress en señales operativas para _resolve_strategy_mode.
@@ -415,6 +449,8 @@ def _build_reason(
     urgency: bool,
     user_cannot_answer: bool,
     detected_loop: bool,
+    response_quality: str,
+    response_strategy: str,
     structural_fact_count: int,
     output_mode: str,
     case_progress: dict[str, Any],

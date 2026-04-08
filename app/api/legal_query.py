@@ -254,6 +254,14 @@ def legal_query(
 ) -> LegalQueryResponse | JSONResponse:
     start_time = time.perf_counter()
     metadata = dict(payload.metadata or {})
+    clarification_turn = prepare_legal_query_turn(
+        query=payload.query,
+        facts=payload.facts,
+        metadata=metadata,
+    )
+    effective_query = clarification_turn.effective_query
+    effective_facts = clarification_turn.merged_facts
+    metadata = clarification_turn.metadata
     request_id = str(metadata.get("request_id") or metadata.get("requestId") or uuid4())
     metadata["request_id"] = request_id
     source_ip = _extract_source_ip(request)
@@ -275,7 +283,7 @@ def legal_query(
         metadata={"route_path": str(request.url.path)},
     )
 
-    input_guardrail = evaluate_query_input(payload.query)
+    input_guardrail = evaluate_query_input(effective_query)
     update_beta_observability_context(
         observability_context,
         normalized_query=input_guardrail.get("normalized_query"),
@@ -401,14 +409,6 @@ def legal_query(
     # Protective mode: reduce max query length when active
     if pm_active and len(effective_query) > pm_status["effective_max_query_length"]:
         effective_query = effective_query[:pm_status["effective_max_query_length"]].rstrip()
-    clarification_turn = prepare_legal_query_turn(
-        query=effective_query,
-        facts=payload.facts,
-        metadata=metadata,
-    )
-    effective_query = clarification_turn.effective_query
-    effective_facts = clarification_turn.merged_facts
-    metadata = clarification_turn.metadata
     update_beta_observability_context(
         observability_context,
         normalized_query=effective_query,

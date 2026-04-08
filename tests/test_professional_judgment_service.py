@@ -37,6 +37,8 @@ def test_professional_judgment_orienta_con_firmeza_cuando_ya_hay_base():
     assert judgment["calibration"]["decision_confidence_level"] == "high"
     assert judgment["calibration"]["confidence_clarity_score"] >= 70
     assert judgment["calibration"]["confidence_stability_score"] >= 70
+    assert judgment["decision_transparency"]["applies"] is True
+    assert judgment["decision_transparency"]["user_explanation"]["user_why_this"]
     assert "Presentar la demanda principal" in judgment["best_next_move"]
     assert "base suficiente" in judgment["why_this_matters_now"].lower()
 
@@ -68,6 +70,8 @@ def test_professional_judgment_frena_y_prioriza_dato_critico_faltante():
     assert judgment["calibration"]["decision_intent"] == "block"
     assert judgment["calibration"]["decision_confidence_level"] == "low"
     assert any("blocked" in item or "blocking" in item for item in judgment["calibration"]["decision_trace"])
+    assert judgment["decision_transparency"]["technical_trace"]["decision_intent"] == "block"
+    assert judgment["decision_transparency"]["alternatives_considered"]
     assert "jurisdiccion relevante" in judgment["blocking_issue"].lower()
     assert "jurisdiccion relevante" in judgment["followup_why"].lower()
     assert "dato pendiente" in judgment["best_next_move"].lower()
@@ -198,6 +202,34 @@ def test_professional_judgment_gobierna_best_next_move_desde_clarify():
     assert "domicilio actual" in judgment["best_next_move"].lower()
 
 
+def test_professional_judgment_hace_transparente_un_followup_ambiguo():
+    judgment = build_professional_judgment(
+        api_payload={
+            "conversational": {
+                "clarification_status": "ambiguous",
+            },
+            "case_progress": {
+                "readiness_label": "medium",
+                "progress_status": "stalled",
+                "next_step_type": "ask",
+                "critical_gaps": [],
+                "important_gaps": [{"key": "aportes", "label": "si existe algun aporte actual"}],
+                "blocking_issues": [],
+                "contradictions": [],
+            },
+            "case_followup": {
+                "should_ask": True,
+                "question": "El otro progenitor aporta algo actualmente?",
+                "need_key": "hecho::aportes_actuales",
+            },
+        }
+    )
+
+    assert judgment["decision_transparency"]["technical_trace"]["clarification_status"] == "ambiguous"
+    assert judgment["decision_transparency"]["technical_trace"]["precision_required"] is True
+    assert "todavia no alcanza" in judgment["decision_transparency"]["user_explanation"]["what_limits_this"].lower()
+
+
 def test_professional_judgment_recalibra_el_next_move_por_bloqueo_real():
     judgment = build_professional_judgment(
         api_payload={
@@ -261,6 +293,10 @@ def test_professional_judgment_no_rompe_compatibilidad_y_agrega_calibration_enri
     assert "decision_intent" in judgment["calibration"]
     assert "dominant_signal_score" in judgment["calibration"]
     assert "decision_confidence_score" in judgment["calibration"]
+    assert "decision_transparency" in judgment
+    assert "technical_trace" in judgment["decision_transparency"]
+    assert "professional_explanation" in judgment["decision_transparency"]
+    assert "user_explanation" in judgment["decision_transparency"]
     assert "confidence_clarity_score" in judgment["calibration"]
     assert "confidence_stability_score" in judgment["calibration"]
     assert "decision_trace" in judgment["calibration"]

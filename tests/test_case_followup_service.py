@@ -377,3 +377,62 @@ def test_asked_slot_solo_no_cuenta_como_resuelto():
 
     assert integrity["slot_statuses"]["aportes_actuales"] == "unknown"
     assert "aportes_actuales" not in integrity["blocked_slots"]
+
+
+def test_reformula_pregunta_cuando_la_respuesta_no_destraba_el_punto():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::ingresos_otro_progenitor",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "¿Tenés algún dato sobre los ingresos actuales del otro progenitor?",
+                },
+            ]
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "metadata": {
+                "clarification_context": {
+                    "response_quality": "insufficient",
+                    "response_strategy": "reformulate_question",
+                    "reformulated_question": "Aunque sea aproximado, ¿sabés si trabaja en blanco, en negro o por cuenta propia?",
+                    "limit_explanation": "Lo que respondiste todavía no alcanza para ubicar los ingresos del otro progenitor.",
+                }
+            },
+        },
+        "estructuracion",
+    )
+
+    assert followup["should_ask"] is True
+    assert "trabaja" in followup["question"].lower()
+    assert followup["adaptive_question_type"] == "reformulation"
+
+
+def test_no_pregunta_en_loop_si_el_usuario_no_logra_precisar():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::aportes_actuales",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "¿El otro progenitor está aportando algo actualmente?",
+                },
+            ]
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "metadata": {
+                "clarification_context": {
+                    "response_quality": "ambiguous",
+                    "response_strategy": "clarify",
+                    "detected_loop": True,
+                }
+            },
+        },
+        "estructuracion",
+    )
+
+    assert followup["should_ask"] is False

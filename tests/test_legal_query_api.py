@@ -309,6 +309,42 @@ async def test_endpoint_merges_clarification_context_before_running_orchestrator
 
 
 @pytest.mark.asyncio
+async def test_endpoint_accepts_short_clarification_answers_before_input_guardrail(client, api_overrides, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _run(**kwargs):
+        captured.update(kwargs)
+        return _build_result()
+
+    monkeypatch.setattr(legal_query_module._orchestrator, "run", _run)
+
+    response = await client.post(
+        "/api/legal-query",
+        json={
+            "query": "Si",
+            "jurisdiction": "jujuy",
+            "metadata": {
+                "clarification_context": {
+                    "base_query": "Quiero iniciar alimentos para mi hijo",
+                    "case_domain": "alimentos",
+                    "last_question": "¿El otro padre o madre le pasa algo de plata actualmente?",
+                    "asked_questions": ["¿El otro padre o madre le pasa algo de plata actualmente?"],
+                    "known_facts": {},
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["query"] == "Quiero iniciar alimentos para mi hijo"
+    assert captured["facts"]["aportes_actuales"] is True
+    assert captured["metadata"]["clarification_context"]["answer_status"] == "precise"
+    assert captured["metadata"]["clarification_context"]["response_quality"] == "short_valid"
+    assert captured["metadata"]["clarification_context"]["response_strategy"] == "advance"
+    assert captured["metadata"]["clarification_context"]["last_user_answer"] == "Si"
+
+
+@pytest.mark.asyncio
 async def test_endpoint_registers_tracking_cycle_events(client, api_overrides, monkeypatch):
     monkeypatch.setattr(legal_query_module._orchestrator, "run", lambda **kwargs: _build_result())
 

@@ -149,3 +149,32 @@ def test_stage_correcto_segun_senales():
 
     assert developing["case_stage"] == "developing"
     assert substantive["case_stage"] in {"substantive", "mature"}
+
+
+def test_followup_ambiguo_baja_confianza_y_pide_mas_preguntas():
+    result = resolve_case_confidence(
+        known_facts={"hay_hijos": True, "aportes_actuales": "informado"},
+        missing_facts=[{"key": "ingresos_otro_progenitor", "importance": "critical", "impact_on_strategy": True}],
+        conversation_state={"progress_state": "advancing", "response_quality": "ambiguous", "response_strategy": "clarify"},
+        case_followup={"should_ask": True, "response_quality": "ambiguous", "response_strategy": "clarify"},
+    )
+
+    assert result["needs_more_questions"] is True
+    assert result["confidence_level"] in {"low", "medium"}
+
+
+def test_advance_with_prudence_no_fuerza_mas_preguntas_si_ya_hay_base():
+    result = resolve_case_confidence(
+        known_facts={
+            "hay_hijos": True,
+            "aportes_actuales": False,
+            "rol_procesal": "actor",
+            "jurisdiccion": "Jujuy",
+        },
+        missing_facts=[{"key": "ingresos_otro_progenitor", "importance": "high", "impact_on_strategy": True}],
+        conversation_state={"progress_state": "advancing", "response_strategy": "advance_with_prudence"},
+        case_followup={"should_ask": False, "response_strategy": "advance_with_prudence"},
+    )
+
+    assert result["needs_more_questions"] is False
+    assert result["closure_readiness"] in {"low", "medium"}

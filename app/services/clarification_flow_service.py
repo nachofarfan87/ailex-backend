@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
+from app.services.conversational_interpretation_service import interpret_clarification_answer
+
 
 _AMBIGUOUS_SHORT_ANSWERS = {
     "si",
@@ -91,20 +93,22 @@ def prepare_legal_query_turn(
     )
     previous_structural_facts = _structural_fact_view(known_facts)
     known_facts = _merge_dicts(known_facts, normalized_facts)
+    prior_asked_questions = _dedupe_strings([
+        *_as_str_list(clarification_context.get("asked_questions")),
+        last_question,
+    ])
 
     extraction = _extract_clarification_answer(
         answer=normalized_query,
         case_domain=case_domain,
         last_question=last_question,
         known_facts=known_facts,
+        asked_questions=prior_asked_questions,
     )
     merged_facts = _merge_dicts(known_facts, extraction["facts"])
     current_structural_facts = _structural_fact_view(merged_facts)
     structural_fact_changes = _diff_structural_facts(previous_structural_facts, current_structural_facts)
-    asked_questions = _dedupe_strings([
-        *_as_str_list(clarification_context.get("asked_questions")),
-        last_question,
-    ])
+    asked_questions = prior_asked_questions
     clarified_fields = _dedupe_strings([
         *_as_str_list(clarification_context.get("clarified_fields")),
         *[str(item).strip() for item in extraction["clarified_fields"] if str(item).strip()],
@@ -119,8 +123,17 @@ def prepare_legal_query_turn(
         "clarified_fields": clarified_fields,
         "last_user_answer": normalized_query,
         "answer_status": extraction["answer_status"],
+        "response_quality": extraction.get("response_quality"),
+        "response_strategy": extraction.get("response_strategy"),
         "precision_required": extraction["precision_required"],
         "precision_prompt": extraction["precision_prompt"],
+        "reformulated_question": extraction.get("reformulated_question"),
+        "limit_explanation": extraction.get("limit_explanation"),
+        "hybrid_guidance": extraction.get("hybrid_guidance"),
+        "user_cannot_answer": bool(extraction.get("user_cannot_answer")),
+        "detected_loop": bool(extraction.get("detected_loop")),
+        "canonical_slot": extraction.get("canonical_slot"),
+        "interpreted_answer": extraction.get("interpreted_answer"),
         "previous_structural_facts": previous_structural_facts,
         "current_structural_facts": current_structural_facts,
         "structural_fact_changes": structural_fact_changes,
@@ -151,6 +164,7 @@ def _extract_clarification_answer(
     case_domain: str,
     last_question: str,
     known_facts: dict[str, Any],
+    asked_questions: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_answer = _normalize_text(answer)
     normalized_question = _normalize_text(last_question)
@@ -162,12 +176,29 @@ def _extract_clarification_answer(
     if normalized_answer in _AMBIGUOUS_SHORT_ANSWERS and _question_needs_disambiguation(normalized_question):
         precision_required = True
         precision_prompt = _build_precision_prompt(last_question)
+        interpretation = interpret_clarification_answer(
+            answer=answer,
+            last_question=last_question,
+            known_facts=known_facts,
+            asked_questions=asked_questions,
+            extracted_facts={},
+            clarified_fields=[],
+        )
         return {
-            "facts": {},
-            "clarified_fields": [],
-            "answer_status": "ambiguous",
+            "facts": interpretation["facts"],
+            "clarified_fields": interpretation["clarified_fields"],
+            "answer_status": interpretation["answer_status"],
+            "response_quality": interpretation["response_quality"],
+            "response_strategy": interpretation["response_strategy"],
             "precision_required": True,
-            "precision_prompt": precision_prompt,
+            "precision_prompt": interpretation["precision_prompt"] or precision_prompt,
+            "reformulated_question": interpretation["reformulated_question"],
+            "limit_explanation": interpretation["limit_explanation"],
+            "hybrid_guidance": interpretation["hybrid_guidance"],
+            "user_cannot_answer": interpretation["user_cannot_answer"],
+            "detected_loop": interpretation["detected_loop"],
+            "canonical_slot": interpretation["canonical_slot"],
+            "interpreted_answer": interpretation["interpreted_answer"],
         }
 
     if case_domain == "divorcio":
@@ -245,15 +276,35 @@ def _extract_clarification_answer(
         precision_required = True
         precision_prompt = "Necesito que lo aclares con un poco mas de precision para no orientarte sobre una base ambigua."
 
-    answer_status = "precise" if clarified_fields else "ambiguous" if precision_required else "unknown"
-    if extracted_facts and all(known_facts.get(key) == value for key, value in extracted_facts.items()):
-        answer_status = "unknown"
+    interpretation = interpret_clarification_answer(
+        answer=answer,
+        last_question=last_question,
+        known_facts=known_facts,
+        asked_questions=asked_questions,
+        extracted_facts=extracted_facts,
+        clarified_fields=clarified_fields,
+    )
+    effective_facts = dict(interpretation["facts"] or {})
+    if effective_facts and all(known_facts.get(key) == value for key, value in effective_facts.items()):
+        interpretation["answer_status"] = "unknown"
+        if interpretation["response_quality"] in {"clear", "short_valid"}:
+            interpretation["response_strategy"] = "advance_with_prudence"
+
     return {
-        "facts": extracted_facts,
-        "clarified_fields": _dedupe_strings(clarified_fields),
-        "answer_status": answer_status,
-        "precision_required": precision_required,
-        "precision_prompt": precision_prompt,
+        "facts": effective_facts,
+        "clarified_fields": interpretation["clarified_fields"],
+        "answer_status": interpretation["answer_status"],
+        "response_quality": interpretation["response_quality"],
+        "response_strategy": interpretation["response_strategy"],
+        "precision_required": bool(interpretation["precision_required"] or precision_required),
+        "precision_prompt": interpretation["precision_prompt"] or precision_prompt,
+        "reformulated_question": interpretation["reformulated_question"],
+        "limit_explanation": interpretation["limit_explanation"],
+        "hybrid_guidance": interpretation["hybrid_guidance"],
+        "user_cannot_answer": interpretation["user_cannot_answer"],
+        "detected_loop": interpretation["detected_loop"],
+        "canonical_slot": interpretation["canonical_slot"],
+        "interpreted_answer": interpretation["interpreted_answer"],
     }
 
 

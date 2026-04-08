@@ -26,6 +26,7 @@ from app.services.professional_judgment_constants import (
     READINESS_MEDIUM_BONUS,
     URGENCY_SIGNAL_SCORE,
 )
+from app.services.decision_transparency_service import build_decision_transparency
 from app.services.professional_judgment_rules import calibrate_judgment
 
 
@@ -160,6 +161,21 @@ def build_professional_judgment(*, api_payload: dict[str, Any] | None = None) ->
         ]
     )[:4]
     applies = bool(_dedupe_texts([dominant_factor, best_next_move, why_this_matters_now, practical_risk]))
+    transparency = build_decision_transparency(
+        context=context,
+        calibration=calibration,
+        judgment={
+            "dominant_factor": dominant_factor,
+            "practical_risk": practical_risk,
+            "blocking_issue": blocking_issue,
+            "best_next_move": best_next_move,
+            "why_this_matters_now": why_this_matters_now,
+            "strengthens_position": strengthens_position,
+            "weakens_position": weakens_position,
+            "missing_to_strengthen": missing_to_strengthen,
+            "followup_why": followup_why,
+        },
+    )
 
     return {
         "applies": applies,
@@ -178,12 +194,15 @@ def build_professional_judgment(*, api_payload: dict[str, Any] | None = None) ->
         "followup_why": followup_why,
         "highlights": highlights,
         "calibration": calibration,
+        "decision_transparency": transparency,
     }
 
 
 def _extract_judgment_context(payload: dict[str, Any]) -> dict[str, Any]:
     case_progress = dict(payload.get("case_progress") or {})
     case_followup = dict(payload.get("case_followup") or {})
+    conversational = dict(payload.get("conversational") or {})
+    clarification_context = dict(dict(payload.get("metadata") or {}).get("clarification_context") or {})
     smart_strategy = dict(payload.get("smart_strategy") or {})
     case_workspace = dict(payload.get("case_workspace") or {})
     case_progress_narrative = dict(payload.get("case_progress_narrative") or {})
@@ -312,6 +331,23 @@ def _extract_judgment_context(payload: dict[str, Any]) -> dict[str, Any]:
         "followup_question": followup_question,
         "followup_need": followup_need,
         "narrative_known": _clean_text(case_progress_narrative.get("known_block")),
+        "clarification_status": (
+            _clean_text(clarification_context.get("response_quality")).lower()
+            or _clean_text(conversational.get("clarification_status")).lower()
+        ),
+        "response_quality": _clean_text(clarification_context.get("response_quality")).lower(),
+        "response_strategy": _clean_text(clarification_context.get("response_strategy")).lower(),
+        "user_cannot_answer": bool(clarification_context.get("user_cannot_answer")),
+        "detected_loop": bool(clarification_context.get("detected_loop")),
+        "canonical_slot": _clean_text(clarification_context.get("canonical_slot")).lower(),
+        "precision_required": bool(
+            (
+                _clean_text(clarification_context.get("response_strategy")).lower() in {"clarify", "reformulate_question"}
+                or _clean_text(clarification_context.get("response_quality")).lower() == "ambiguous"
+                or _clean_text(conversational.get("clarification_status")).lower() == "ambiguous"
+            )
+            and followup_question
+        ),
     }
 
 

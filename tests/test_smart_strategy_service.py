@@ -364,3 +364,43 @@ def test_ejecucion_sin_critical_gaps_da_tono_ejecutivo():
 
     assert result["strategy_mode"] == "action_first"
     assert result["recommended_tone"] == "ejecutivo"
+
+
+def test_respuesta_ambigua_activa_clarify_critical_si_hay_followup():
+    result = resolve_smart_strategy(
+        known_facts={"hay_hijos": True},
+        missing_facts=[{"key": "ingresos", "importance": "critical", "impact_on_strategy": True}],
+        conversation_state={"progress_state": "advancing", "response_quality": "ambiguous", "response_strategy": "clarify"},
+        case_followup={"should_ask": True, "response_quality": "ambiguous", "response_strategy": "clarify"},
+        case_confidence={
+            "confidence_level": "medium",
+            "confidence_score": 0.45,
+            "case_stage": "developing",
+            "needs_more_questions": True,
+            "closure_readiness": "low",
+            "recommended_depth": "standard",
+        },
+        output_mode="estructuracion",
+    )
+
+    assert result["strategy_mode"] == "clarify_critical"
+
+
+def test_respuesta_que_permite_avanzar_con_prudencia_no_fuerza_loop():
+    result = resolve_smart_strategy(
+        known_facts={"hay_hijos": True, "aportes_actuales": False},
+        missing_facts=[{"key": "ingresos", "importance": "high", "impact_on_strategy": True}],
+        conversation_state={"progress_state": "advancing", "response_strategy": "advance_with_prudence"},
+        case_followup={"should_ask": False, "response_strategy": "advance_with_prudence"},
+        case_confidence={
+            "confidence_level": "medium",
+            "confidence_score": 0.53,
+            "case_stage": "developing",
+            "needs_more_questions": False,
+            "closure_readiness": "medium",
+            "recommended_depth": "standard",
+        },
+        output_mode="estrategia",
+    )
+
+    assert result["strategy_mode"] == "orient_with_prudence"
