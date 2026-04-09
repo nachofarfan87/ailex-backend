@@ -1309,6 +1309,62 @@ def test_next_step_never_object_in_conversational():
     assert next_step is None or isinstance(next_step, str)
 
 
+def test_current_query_with_child_overrides_stale_without_children_fact():
+    payload = _refined_response()
+    payload["query"] = "Tengo una hija de 3 meses"
+    payload["facts"] = {"hay_hijos": False}
+    payload["metadata"] = {
+        "clarification_context": {
+            "known_facts": {"hay_hijos": False},
+        }
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["conversational"]["known_facts"]["hay_hijos"] is True
+    assert "sin hijos" not in (result["conversational"]["message"] or "").lower()
+
+
+def test_question_first_keeps_action_separate_from_followup_question():
+    payload = _refined_response()
+    payload["query"] = "Como puedo divorciarme"
+    payload["quick_start"] = "Primer paso recomendado: existen hijos menores o con capacidad restringida"
+    payload["case_strategy"]["recommended_actions"] = [
+        "Ordenar primero cuidado personal, regimen comunicacional y alimentos de los hijos dentro de la propuesta reguladora.",
+        "Redactar acuerdo o propuesta sobre vivienda.",
+    ]
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Verificar existencia de hijos menores a cargo.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+    user_output = result["output_modes"]["user"]
+    conversational = result["conversational"]
+
+    assert result["conversational"]["should_ask_first"] is True
+    assert conversational["question"] and conversational["question"].endswith("?")
+    assert "existen hijos" not in (user_output["quick_start"] or "").lower()
+    assert all("existen hijos" not in step.lower() for step in user_output["next_steps"])
+    assert "cuidado personal" in " ".join(user_output["next_steps"]).lower()
+    assert "cuidado personal" in (conversational["next_step"] or "").lower()
+
+
+def test_divorce_with_children_prioritizes_parental_action_over_housing():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["facts"] = {"hay_hijos": True}
+    payload["quick_start"] = "Primer paso recomendado: Redactar acuerdo o propuesta sobre vivienda."
+    payload["case_strategy"]["recommended_actions"] = [
+        "Redactar acuerdo o propuesta sobre vivienda.",
+        "Ordenar primero cuidado personal, regimen comunicacional y alimentos de los hijos dentro de la propuesta reguladora.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert "cuidado personal" in (result["conversational"]["next_step"] or "").lower()
+    assert "cuidado personal" in result["output_modes"]["user"]["quick_start"].lower()
+
+
 def test_divorcio_known_facts_make_convenio_missing_items_disappear():
     payload = _refined_response()
     payload["case_domain"] = "divorcio"

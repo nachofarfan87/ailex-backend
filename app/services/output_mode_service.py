@@ -444,6 +444,7 @@ def _sync_with_conversation_memory(
     if memory_question is not None:
         # Memory-aware path selected a question — use it if different from Path A's.
         current_q_norm = _normalize_text(conversational.get("question") or "")
+        memory_question = _ensure_human_question(memory_question) or ""
         memory_q_norm = _normalize_text(memory_question)
         if current_q_norm != memory_q_norm:
             conversational["question"] = memory_question
@@ -543,6 +544,26 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
     )
 
     known_facts = _as_dict(conversational.get("known_facts"))
+    primary_action, supporting_actions = _resolve_primary_and_supporting_actions(
+        response,
+        known_facts=known_facts,
+    )
+    raw_quick_start_body = _strip_known_prefix(quick_start, "Primer paso recomendado:")
+    quick_start_value = quick_start
+    if (
+        quick_start
+        and raw_quick_start_body
+        and not _looks_like_question_prompt(raw_quick_start_body)
+        and not _should_override_primary_action(
+            raw_quick_start_body,
+            preferred_action=primary_action,
+            case_domain=case_domain,
+            known_facts=known_facts,
+        )
+    ):
+        quick_start_value = quick_start
+    elif primary_action:
+        quick_start_value = f"Primer paso recomendado: {primary_action}"
     summary = _to_user_text(summary_source) or _default_user_summary(
         case_domain, quick_start, known_facts
     )
@@ -565,18 +586,21 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
             "summary": guided_response or summary,
             "quick_start": "",
             "what_this_means": guided_response or what_this_means,
-            "next_steps": [decisive_question] if decisive_question else [],
+            "next_steps": [primary_action] if primary_action else [],
             "key_risks": [],
-            "missing_information": _dedupe_strs(_to_user_list(conversational.get("missing_facts") or []))[:2],
+            "missing_information": _dedupe_strs([
+                *(_to_user_list(conversational.get("missing_facts") or [])),
+                decisive_question,
+            ])[:2],
             "confidence_explained": "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
         }
 
     return {
         "title": _user_title(case_domain, quick_start),
         "summary": summary,
-        "quick_start": quick_start,
+        "quick_start": quick_start_value,
         "what_this_means": what_this_means,
-        "next_steps": _dedupe_strs(next_steps)[:5],
+        "next_steps": supporting_actions[:5] if supporting_actions else _dedupe_strs(next_steps)[:5],
         "key_risks": _dedupe_strs(key_risks)[:5],
         "missing_information": _dedupe_strs(missing_information)[:5],
         "confidence_explained": explain_confidence(response, mode="user"),
@@ -693,13 +717,13 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
     precision_prompt = _clean_text(clarification_context.get("precision_prompt"))
     precision_required = bool(clarification_context.get("precision_required")) and bool(precision_prompt)
     if response_strategy == "reformulate_question" and reformulated_question:
-        selected_question = _clean_question(reformulated_question)
+        selected_question = _ensure_human_question(reformulated_question)
         should_ask_first = True
         guided_response = _first_nonempty_text(limit_explanation, hybrid_guidance, reformulated_question)
         if memory_phrase and guided_response:
             guided_response = f"{memory_phrase} {guided_response}".strip()
     elif precision_required:
-        selected_question = _clean_question(precision_prompt)
+        selected_question = _ensure_human_question(precision_prompt)
         should_ask_first = True
         guided_response = _first_nonempty_text(limit_explanation, precision_prompt)
         if memory_phrase and guided_response:
@@ -737,30 +761,19 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
     if 2 <= len(recommended) <= 3 and all(len(item) < 120 for item in recommended):
         options = [_to_user_text(item) for item in recommended]
 
-    quick_start_raw = _clean_text(response.get("quick_start"))
-    next_step_source = _first_nonempty_text(
-        _strip_known_prefix(quick_start_raw, "Primer paso recomendado:") if quick_start_raw else "",
-        recommended[0] if recommended else "",
-        _as_str_list(procedural_strategy.get("next_steps"))[0] if _as_str_list(procedural_strategy.get("next_steps")) else "",
+    selected_question = _ensure_human_question(selected_question)
+    primary_action, _supporting_actions = _resolve_primary_and_supporting_actions(
+        response,
+        known_facts=known_facts,
     )
-    # Defensive: ensure next_step is always a plain string, never an object.
-    raw_next_step = _to_user_text(next_step_source) if next_step_source else None
-    if isinstance(raw_next_step, dict):
-        next_step = _clean_text(
-            raw_next_step.get("description")
-            or raw_next_step.get("action")
-            or raw_next_step.get("title")
-            or raw_next_step.get("text")
-        )
-    else:
-        next_step = _clean_text(raw_next_step) if raw_next_step else None
+    next_step = primary_action
 
     return {
         "message": guided_response or message,
         "question": selected_question,
         "options": options,
         "missing_facts": [_to_user_text(item) for item in missing_facts][:3],
-        "next_step": None if should_ask_first else next_step,
+        "next_step": next_step,
         "should_ask_first": should_ask_first,
         "guided_response": guided_response,
         "known_facts": known_facts,
@@ -818,11 +831,19 @@ def _fact_to_memory_snippet(field: str, value: Any) -> str:
             return f"divorcio {modalidad}"
         return ""
     if field == "hay_hijos":
-        return "con hijos" if bool(value) else "sin hijos"
+        if _is_positive_fact_value(value):
+            return "con hijos"
+        if _is_explicit_negative_fact_value(value):
+            return "sin hijos"
+        return ""
     if field == "hay_acuerdo":
-        return "con acuerdo" if bool(value) else "sin acuerdo"
+        if _is_positive_fact_value(value):
+            return "con acuerdo"
+        if _is_explicit_negative_fact_value(value):
+            return "sin acuerdo"
+        return ""
     if field == "convenio_regulador":
-        return "ya hay un convenio base" if bool(value) else ""
+        return "ya hay un convenio base" if _is_positive_fact_value(value) else ""
     if field == "cuota_alimentaria_porcentaje":
         porcentaje = _clean_text(value)
         return f"alimentos en {porcentaje} del sueldo" if porcentaje else ""
@@ -833,9 +854,13 @@ def _fact_to_memory_snippet(field: str, value: Any) -> str:
         rol = _clean_text(value)
         return f"actuas como {rol}" if rol else ""
     if field == "urgencia":
-        return "hay urgencia" if bool(value) else ""
+        return "hay urgencia" if _is_positive_fact_value(value) else ""
     if field == "hay_bienes":
-        return "hay bienes" if bool(value) else "no aparecen bienes relevantes"
+        if _is_positive_fact_value(value):
+            return "hay bienes"
+        if _is_explicit_negative_fact_value(value):
+            return "no aparecen bienes relevantes"
+        return ""
     if field == "situacion_economica":
         descripcion = _clean_text(value)
         return f"hay un dato economico relevante: {descripcion}" if descripcion else ""
@@ -1248,11 +1273,41 @@ def _collect_known_facts(response: dict[str, Any]) -> dict[str, Any]:
             _as_dict(response.get("facts")),
         ),
     )
+    known_facts = _apply_query_fact_overrides(
+        known_facts,
+        query_text=query_text,
+    )
     known_facts = _filter_domain_contaminated_meta_facts(
         known_facts,
         case_domain=_clean_text(response.get("case_domain")),
     )
     return {key: value for key, value in known_facts.items() if value not in (None, "", [], {})}
+
+
+def _apply_query_fact_overrides(
+    facts: dict[str, Any],
+    *,
+    query_text: str,
+) -> dict[str, Any]:
+    merged = dict(facts or {})
+    normalized_query = _normalize_text(query_text)
+    if not normalized_query:
+        return merged
+
+    if _query_mentions_children(query_text):
+        merged["hay_hijos"] = True
+        if re.search(r"\b\d{1,2}\s*(anos|aÃ±os|meses|dias)\b", normalized_query):
+            merged.setdefault("hay_hijos_edad", "informada")
+    elif _query_explicitly_denies_children(query_text):
+        merged["hay_hijos"] = False
+
+    if any(token in normalized_query for token in ("casa", "vivienda", "inmueble", "auto", "vehiculo", "bienes", "propiedad")):
+        merged["hay_bienes"] = True
+
+    if any(token in normalized_query for token in ("convenio", "propuesta reguladora", "acuerdo regulador")):
+        merged["convenio_regulador"] = True
+
+    return merged
 
 
 def _filter_domain_contaminated_meta_facts(
@@ -1506,6 +1561,21 @@ def _clean_question(question: str | None) -> str | None:
     if not text:
         return None
     return _strip_question_marks(_to_user_text(text))
+
+
+def _ensure_human_question(question: str | None) -> str | None:
+    text = _clean_text(question)
+    if not text:
+        return None
+    if not _looks_like_question_prompt(text):
+        return _fact_to_question(text)
+    if "?" not in text and "Â¿" not in text:
+        return _fact_to_question(text)
+    if text.rstrip().endswith("?"):
+        return _to_user_text(text)
+    if text.startswith("Â¿"):
+        return f"{_to_user_text(text.rstrip('?'))}?"
+    return _fact_to_question(text)
 
 
 def _strip_question_marks(text: str) -> str:
@@ -1796,6 +1866,165 @@ def _clean_text(value: Any) -> str:
     if not text:
         return ""
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _looks_like_question_prompt(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return False
+    if "?" in text or "Â¿" in text:
+        return True
+    if normalized.startswith(("hay ", "existen ", "si hay ", "tienen ", "ya hay ", "cual ", "como ", "cuando ", "donde ", "quien ")):
+        return True
+    if normalized.startswith(("definir si", "confirmar si", "precisar si", "verificar si")):
+        return True
+    return False
+
+
+def _query_mentions_children(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized or _query_explicitly_denies_children(text):
+        return False
+    return bool(re.search(r"\b(hijo|hija|hijos|hijas|bebe|bebÃ©|nena|nene|menor|menores)\b", normalized))
+
+
+def _query_explicitly_denies_children(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(token in normalized for token in ("sin hijos", "no hay hijos", "no tenemos hijos", "no tengo hijos"))
+
+
+def _is_positive_fact_value(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "si", "s", "sÃ­", "inferred", "informada", "informado"}
+    return False
+
+
+def _is_explicit_negative_fact_value(value: Any) -> bool:
+    if value is False:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"false", "no", "sin hijos", "none"}
+    return False
+
+
+def _resolve_actionable_steps(
+    response: dict[str, Any],
+    *,
+    known_facts: dict[str, Any],
+) -> list[str]:
+    case_domain = _clean_text(response.get("case_domain"))
+    case_strategy = _as_dict(response.get("case_strategy"))
+    procedural_strategy = _as_dict(response.get("procedural_strategy"))
+    case_profile = _as_dict(response.get("case_profile"))
+    quick_start_raw = _clean_text(response.get("quick_start"))
+    candidates = _dedupe_strs([
+        _strip_known_prefix(quick_start_raw, "Primer paso recomendado:") if quick_start_raw else "",
+        *_to_user_list(case_strategy.get("recommended_actions") or []),
+        *_to_user_list(procedural_strategy.get("next_steps") or []),
+        *_to_user_list(case_profile.get("strategic_focus") or []),
+    ])
+    filtered = [
+        item for item in candidates
+        if item
+        and not _looks_like_question_prompt(item)
+        and not _action_conflicts_with_known_facts(item, known_facts=known_facts)
+    ]
+    if not filtered:
+        return []
+    return sorted(
+        filtered,
+        key=lambda item: _score_action_candidate(item, case_domain=case_domain, known_facts=known_facts),
+        reverse=True,
+    )
+
+
+def _resolve_primary_and_supporting_actions(
+    response: dict[str, Any],
+    *,
+    known_facts: dict[str, Any],
+) -> tuple[str, list[str]]:
+    quick_start = _strip_known_prefix(
+        _clean_text(response.get("quick_start")),
+        "Primer paso recomendado:",
+    )
+    quick_start = _to_user_text(quick_start)
+    actionable_steps = _resolve_actionable_steps(response, known_facts=known_facts)
+    quick_start_valid = bool(quick_start) and not _looks_like_question_prompt(quick_start) and not _action_conflicts_with_known_facts(
+        quick_start,
+        known_facts=known_facts,
+    )
+    primary_action = actionable_steps[0] if actionable_steps else ""
+    if quick_start_valid and not _should_override_primary_action(
+        quick_start,
+        preferred_action=primary_action,
+        case_domain=_clean_text(response.get("case_domain")),
+        known_facts=known_facts,
+    ):
+        primary_action = quick_start
+    supporting = [item for item in actionable_steps if _normalize_text(item) != _normalize_text(primary_action)]
+    if not supporting and primary_action and not actionable_steps:
+        supporting = [primary_action]
+    return primary_action, supporting
+
+
+def _should_override_primary_action(
+    current_action: str,
+    *,
+    preferred_action: str,
+    case_domain: str,
+    known_facts: dict[str, Any],
+) -> bool:
+    normalized_current = _normalize_text(current_action)
+    normalized_preferred = _normalize_text(preferred_action)
+    if not normalized_current or not normalized_preferred:
+        return False
+    if case_domain.casefold() == "divorcio" and known_facts.get("hay_hijos") is True:
+        current_is_housing = any(token in normalized_current for token in ("vivienda", "hogar", "bienes"))
+        preferred_is_parental = any(token in normalized_preferred for token in ("hijos", "cuidado", "comunicacion", "alimentos"))
+        if current_is_housing and preferred_is_parental:
+            return True
+    return False
+
+
+def _action_conflicts_with_known_facts(
+    action: str,
+    *,
+    known_facts: dict[str, Any],
+) -> bool:
+    normalized = _normalize_text(action)
+    modalidad = _clean_text(known_facts.get("divorcio_modalidad")).casefold()
+    if any(token in normalized for token in ("definir si el divorcio", "via procesal", "modo conjunto", "modo unilateral")):
+        if modalidad in {"unilateral", "conjunto"}:
+            return True
+    if any(token in normalized for token in ("confirmar si hay acuerdo", "verificar si hay acuerdo")) and "hay_acuerdo" in known_facts:
+        return True
+    if any(token in normalized for token in ("confirmar si hay hijos", "existen hijos", "verificar hijos")) and "hay_hijos" in known_facts:
+        return True
+    return False
+
+
+def _score_action_candidate(
+    action: str,
+    *,
+    case_domain: str,
+    known_facts: dict[str, Any],
+) -> int:
+    normalized = _normalize_text(action)
+    score = 0
+    if normalized.startswith(("ordenar", "redactar", "preparar", "presentar", "verificar", "incluir", "reunir")):
+        score += 8
+    if case_domain.casefold() == "divorcio" and known_facts.get("hay_hijos") is True:
+        if any(token in normalized for token in ("hijos", "cuidado", "comunicacion", "alimentos")):
+            score += 20
+        if any(token in normalized for token in ("vivienda", "hogar", "bienes", "patrimonial")):
+            score -= 4
+    if case_domain.casefold() == "divorcio" and any(token in normalized for token in ("unilateral", "conjunto", "propuesta reguladora")):
+        score += 6
+    if any(token in normalized for token in ("urgente", "cuanto antes", "inmediata")):
+        score += 3
+    return score
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

@@ -82,11 +82,12 @@ class ResponsePostprocessor:
     ) -> FinalOutput:
         raw_response_text = self._build_response_text(pipeline_payload)
         response_text = self._sanitize_text(raw_response_text)
-        response_text = self._prepend_quick_start(
-            response_text,
-            pipeline_payload.get("quick_start"),
-            output_mode=pipeline_payload.get("output_mode"),
-        )
+        if not bool(dict(pipeline_payload.get("conversational") or {}).get("should_ask_first")):
+            response_text = self._prepend_quick_start(
+                response_text,
+                pipeline_payload.get("quick_start"),
+                output_mode=pipeline_payload.get("output_mode"),
+            )
         response_text = self._apply_prudence(
             response_text=response_text,
             pipeline_payload=pipeline_payload,
@@ -475,13 +476,15 @@ class ResponsePostprocessor:
         execution_data = dict(execution_output.get("execution_output") or {})
         question = str(execution_data.get("followup_question") or "").strip()
         if not question:
+            conversational = dict(api_payload.get("conversational") or {})
+            question = str(conversational.get("question") or "").strip()
+        if not question:
             progression_policy = dict(api_payload.get("progression_policy") or {})
             missing_focus = list(progression_policy.get("missing_focus") or [])
             if missing_focus:
-                question = f"Necesito precisar {str(missing_focus[0]).strip()}."
-            else:
-                conversational = dict(api_payload.get("conversational") or {})
-                question = str(conversational.get("question") or "").strip()
+                question = self._normalize_followup_question(str(missing_focus[0]).strip())
+        else:
+            question = self._normalize_followup_question(question)
 
         if not question:
             return ""
@@ -499,6 +502,20 @@ class ResponsePostprocessor:
         ):
             return ""
         return question
+
+    def _normalize_followup_question(self, question: str) -> str:
+        text = self._normalize_whitespace(question)
+        if not text:
+            return ""
+        if text.endswith("?") and ("¿" in text or text.startswith(("Que ", "Como ", "Cual ", "Donde ", "Quien "))):
+            return text
+        if text.endswith("?"):
+            return text if text.startswith("¿") else f"¿{text}"
+        lowered = text.lower().rstrip(".:;")
+        lowered = re.sub(r"^(necesito precisar|precisar|confirmar|definir|verificar)\s+", "", lowered).strip()
+        if not lowered:
+            return ""
+        return f"¿{lowered[0].upper()}{lowered[1:]}?"
 
     def _should_include_followup_question(
         self,

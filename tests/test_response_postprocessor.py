@@ -642,6 +642,71 @@ def test_resolve_followup_question_mantiene_fallback_sin_case_followup():
     assert "domicilio relevante" in question.lower()
 
 
+def test_resolve_followup_question_humanizes_missing_focus_fallback():
+    processor = ResponsePostprocessor()
+
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "dialogue_policy": {
+                "action": "ask",
+                "dominant_missing_purpose": "enable",
+            },
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": True,
+                    "case_completeness": "low",
+                }
+            },
+            "case_progress": {
+                "next_step_type": "ask",
+                "critical_gaps": ["hijos"],
+                "blocking_issues": ["missing_children"],
+            },
+            "progression_policy": {
+                "missing_focus": [
+                    "existen hijos menores o con capacidad restringida y que cuestiones de cuidado, comunicacion y alimentos deben regularse",
+                ],
+            },
+        },
+        {"execution_output": {}},
+        output_mode="orientacion_inicial",
+    )
+
+    assert question.startswith("¿")
+    assert question.endswith("?")
+    assert "existen hijos menores" in question.lower()
+
+
+def test_resolve_followup_question_prefers_conversational_question_over_missing_focus():
+    processor = ResponsePostprocessor()
+
+    question = processor._resolve_followup_question(  # noqa: SLF001
+        {
+            "conversational": {"question": "¿Tienen hijos en comun?"},
+            "dialogue_policy": {
+                "action": "ask",
+                "dominant_missing_purpose": "identify",
+            },
+            "conversation_state": {
+                "progress_signals": {
+                    "blocking_missing": True,
+                    "case_completeness": "low",
+                }
+            },
+            "case_progress": {
+                "next_step_type": "ask",
+                "critical_gaps": ["hijos"],
+                "blocking_issues": ["missing_children"],
+            },
+            "progression_policy": {"missing_focus": ["existen hijos menores"]},
+        },
+        {"execution_output": {}},
+        output_mode="orientacion_inicial",
+    )
+
+    assert question == "¿Tienen hijos en comun?"
+
+
 def test_attach_case_followup_veta_followup_legacy_si_adaptive_lo_suprime(monkeypatch):
     processor = ResponsePostprocessor()
     api_payload = {

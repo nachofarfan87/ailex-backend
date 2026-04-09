@@ -316,6 +316,44 @@ def _trim_content_before_question(
     return content_paras
 
 
+def _looks_like_followup_prompt(paragraph: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(paragraph or "").strip().lower())
+    if not normalized:
+        return False
+    if "?" in paragraph or "¿" in paragraph:
+        return True
+    if normalized.startswith(("hay ", "existen ", "si hay ", "tienen ", "ya hay ", "cual ", "como ", "cuando ", "donde ", "quien ")):
+        return True
+    if normalized.startswith(("definir si", "confirmar si", "precisar si", "verificar si")):
+        return True
+    return False
+
+
+def _ensure_question_paragraph(paragraph: str) -> str:
+    text = re.sub(r"\s+", " ", str(paragraph or "").strip())
+    if not text:
+        return ""
+    if "?" in text:
+        return text
+    text = text.rstrip(".:;")
+    lowered = text[:1].lower() + text[1:] if len(text) > 1 else text.lower()
+    return f"¿{lowered}?"
+
+
+def _split_followup_paragraphs(body_text: str, action: str) -> tuple[list[str], list[str]]:
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
+    question_paras = [p for p in paragraphs if "?" in p or "¿" in p]
+    content_paras = [p for p in paragraphs if p not in question_paras]
+    if question_paras:
+        question_paras = [_ensure_question_paragraph(p) for p in question_paras]
+        return content_paras, question_paras
+    if action in {"ask", "hybrid"} and paragraphs:
+        candidate = paragraphs[-1]
+        if _looks_like_followup_prompt(candidate):
+            return paragraphs[:-1], [_ensure_question_paragraph(candidate)]
+    return paragraphs, []
+
+
 def estimate_repetition(
     response_text: str,
     turn_count: int,
@@ -371,6 +409,11 @@ def trim_body_for_strength(
 
     question_paras = [p for p in paragraphs if "?" in p]
     content_paras = [p for p in paragraphs if "?" not in p]
+    if not question_paras and turn_type in ("clarification", "guided_followup") and paragraphs:
+        candidate = paragraphs[-1]
+        if _looks_like_followup_prompt(candidate):
+            question_paras = [_ensure_question_paragraph(candidate)]
+            content_paras = paragraphs[:-1]
 
     if guidance_strength == "low":
         if question_paras:
@@ -673,9 +716,7 @@ def compose(
     action = str(policy.get("action") or "")
     if question_intro and action in ("ask", "hybrid") and turn_type != "initial":
         # Separar body en contenido y pregunta para insertar intro como puente
-        body_paras = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
-        question_paras = [p for p in body_paras if "?" in p]
-        content_paras = [p for p in body_paras if "?" not in p]
+        content_paras, question_paras = _split_followup_paragraphs(body_text, action)
         allow_full_content = (
             turn_type == "guided_followup"
             and guidance_strength in ("medium", "high")

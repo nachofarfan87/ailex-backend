@@ -414,6 +414,22 @@ def test_compose_integrates_question_intro_as_bridge():
     assert intro_pos < question_pos
 
 
+def test_compose_humanizes_followup_prompt_without_question_mark():
+    response = (
+        "Ya hay una base para avanzar con lo principal.\n\n"
+        "existen hijos menores o con capacidad restringida y que cuestiones de cuidado, comunicacion y alimentos deben regularse"
+    )
+    result = compose(
+        conversation_state=_state(turn_count=2, known_fact_count=1, case_completeness="medium"),
+        dialogue_policy=_policy(action="ask", guidance_strength="medium", dominant_missing_purpose="identify"),
+        response_text=response,
+    )
+
+    composed = result["composed_response_text"]
+    assert "¿existen hijos menores" in composed.lower()
+    assert result["question_intro"] in composed
+
+
 def test_compose_agrega_body_bridge_entre_apertura_y_contenido():
     response = f"{_LEGAL_CONTENT_PARA}\n\n{_QUESTION_PARA}"
     result = compose(
