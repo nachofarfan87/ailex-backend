@@ -153,7 +153,18 @@ def refine(response: dict[str, Any]) -> dict[str, Any]:
         procedural_strategy["next_steps"] = procedural_actions
         refined["procedural_strategy"] = procedural_strategy
 
+    legal_strategy = _as_dict(refined.get("legal_strategy"))
+    case_strategy = _as_dict(refined.get("case_strategy"))
+    if legal_strategy and case_strategy:
+        legal_strategy["case_strategy"] = deepcopy(case_strategy)
+        refined["legal_strategy"] = legal_strategy
+
     refined = rebalance_missing_info_and_confidence(refined)
+    legal_strategy = _as_dict(refined.get("legal_strategy"))
+    case_strategy = _as_dict(refined.get("case_strategy"))
+    if legal_strategy and case_strategy:
+        legal_strategy["case_strategy"] = deepcopy(case_strategy)
+        refined["legal_strategy"] = legal_strategy
     return refined
 
 
@@ -365,7 +376,18 @@ def simplify_strategy_text(text: str) -> str:
         return ""
     simplified = " ".join(deduped)
     sentences = re.split(r"(?<=[\.\!\?])\s+", simplified)
-    concise = " ".join(sentence.strip() for sentence in sentences[:3] if sentence.strip())
+    concise_sentences = [sentence.strip() for sentence in sentences[:3] if sentence.strip()]
+    concise = " ".join(concise_sentences)
+
+    caution_markers = ("saneamiento", "prudencia", "contencion")
+    concise_lower = concise.lower()
+    if not any(marker in concise_lower for marker in caution_markers):
+        for sentence in sentences[3:]:
+            candidate = sentence.strip()
+            if candidate and any(marker in candidate.lower() for marker in caution_markers):
+                concise = " ".join([*concise_sentences, candidate]).strip()
+                break
+
     return concise[:700].strip()
 
 

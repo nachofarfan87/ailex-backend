@@ -290,6 +290,11 @@ def _build_strategic_narrative(
             f"El punto que probablemente condicione la viabilidad practica del planteo es: {str(conflict.get('most_vulnerable_point')).strip()}"
         )
 
+    if strategic_posture == "cautelosa":
+        parts.append(
+            "El caso requiere un enfoque de prudencia y saneamiento previo. Conviene consolidar la base probatoria antes de avanzar con medidas de mayor exposicion."
+        )
+
     if domain == "alimentos" or case_profile.get("is_alimentos"):
         _narrative_alimentos(parts, case_profile)
     elif domain == "divorcio":
@@ -714,6 +719,7 @@ def _conflict_summary_regimen_comunicacional(lines: list[str], scenarios: set[st
 
 
 def _conflict_summary_conflicto_patrimonial(lines: list[str], scenarios: set[str]) -> None:
+    lines.append("Existe un conflicto patrimonial relevante.")
     if "bien_ganancial" in scenarios:
         lines.append("El caracter ganancial del bien debe acreditarse con titulo, fecha de adquisicion y estado del vinculo matrimonial al momento de la compra.")
     if "bien_heredado" in scenarios:
@@ -928,6 +934,7 @@ def _actions_regimen_comunicacional(lines: list[str], case_profile: dict, scenar
 
 
 def _actions_conflicto_patrimonial(lines: list[str], case_profile: dict, scenarios: set[str]) -> None:
+    lines.append("Evaluar vias para resolver el conflicto patrimonial (adjudicacion, liquidacion o division).")
     if "cotitularidad" in scenarios:
         lines.append("Acreditar cotitularidad con titulo y estado registral actualizado.")
     if "bien_ganancial" in scenarios:
@@ -979,6 +986,7 @@ def _build_procedural_focus(
     if dominant_factor == "jurisprudencia":
         focus.append("usar la jurisprudencia como factor de cierre del criterio decisorio, no como cita lateral")
     if posture == "cautelosa":
+        focus.append("priorizar saneamiento probatorio y reduccion de riesgo")
         focus.append("priorizar saneamiento, cobertura probatoria y prevencion de rechazo antes de ampliar el planteo")
     elif posture == "agresiva":
         focus.append("priorizar avance de la pretension principal con apoyo normativo y probatorio ya suficiente")
