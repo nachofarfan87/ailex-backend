@@ -5,6 +5,7 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 from typing import Any
 
+from app.services.conversation_integrity_service import canonicalize_slot
 from app.services.divorce_agreement_evaluation_service import build_divorce_agreement_enrichment
 
 
@@ -98,6 +99,49 @@ _HIGH_RISK_WARNING_PATTERNS = (
     "prescripción",
     "prueba critica",
     "prueba crítica",
+)
+
+_ACTION_VERB_PATTERNS = (
+    "acreditar",
+    "ajustar",
+    "alinear",
+    "armar",
+    "atacar",
+    "completar",
+    "consolidar",
+    "controlar",
+    "definir",
+    "documentar",
+    "evaluar",
+    "fundamentar",
+    "gestionar",
+    "impulsar",
+    "incluir",
+    "iniciar",
+    "insistir",
+    "inventariar",
+    "justificar",
+    "mantener",
+    "ordenar",
+    "pedir",
+    "plantear",
+    "preparar",
+    "presentar",
+    "priorizar",
+    "probar",
+    "proponer",
+    "relevar",
+    "reordenar",
+    "reunir",
+    "revisar",
+    "redact",
+    "redactar",
+    "responder",
+    "separar",
+    "solicitar",
+    "traducir",
+    "verificar",
+    "vincular",
 )
 
 
@@ -332,6 +376,8 @@ def prioritize_actions(
     known_facts = _as_dict(facts)
     for index, action in enumerate(_dedupe_texts(actions)):
         normalized = _normalize_text(action)
+        if _looks_like_non_action_candidate(action):
+            continue
         if _action_conflicts_with_facts(normalized, known_facts):
             continue
         priority = 0
@@ -341,6 +387,11 @@ def prioritize_actions(
             priority = 20
         elif any(token in normalized for token in _DRAFTING_ACTION_PATTERNS):
             priority = 10
+        priority += _domain_action_bonus(
+            normalized_action=normalized,
+            case_domain=case_domain,
+            facts=known_facts,
+        )
         if changed_fields:
             priority += _reactivity_action_bonus(normalized, changed_fields)
         ranked.append((priority, index, action, _action_semantic_key(action, case_domain=case_domain)))
@@ -374,9 +425,9 @@ def simplify_strategy_text(text: str) -> str:
     deduped = _dedupe_texts(paragraphs)
     if not deduped:
         return ""
-    simplified = " ".join(deduped)
+    simplified = "\n\n".join(deduped)
     sentences = re.split(r"(?<=[\.\!\?])\s+", simplified)
-    concise_sentences = [sentence.strip() for sentence in sentences[:3] if sentence.strip()]
+    concise_sentences = [sentence.strip() for sentence in sentences[:4] if sentence.strip()]
     concise = " ".join(concise_sentences)
 
     caution_markers = ("saneamiento", "prudencia", "contencion")
@@ -388,7 +439,7 @@ def simplify_strategy_text(text: str) -> str:
                 concise = " ".join([*concise_sentences, candidate]).strip()
                 break
 
-    return concise[:700].strip()
+    return concise[:1000].strip()
 
 
 def extract_quick_start(
@@ -403,7 +454,7 @@ def extract_quick_start(
         strategy_reactivity=_as_dict(strategy_reactivity),
         case_domain=case_domain,
     )
-    if reactive_pick:
+    if reactive_pick and not _looks_like_non_action_candidate(reactive_pick):
         return f"Primer paso recomendado: {reactive_pick}"
     prioritized = prioritize_actions(
         actions,
@@ -796,6 +847,35 @@ def _action_conflicts_with_facts(normalized_action: str, facts: dict[str, Any]) 
     ):
         return True
     return False
+
+
+def _looks_like_non_action_candidate(action: str) -> bool:
+    text = str(action or "").strip()
+    normalized = _normalize_text(text)
+    if not normalized:
+        return True
+    if "?" in text or "¿" in text:
+        return True
+    if normalized.startswith(("por ejemplo", "aunque sea aproximado", "pregunta critica pendiente", "dato pendiente", "aclarar si", "confirmar si", "precisar si")):
+        return True
+    if normalized.startswith(("si hay ", "si tiene ", "si hoy ", "hay hijos", "existen hijos", "falta ")):
+        return True
+    if canonicalize_slot(question=text) and not any(token in normalized for token in _ACTION_VERB_PATTERNS):
+        return True
+    return False
+
+
+def _domain_action_bonus(*, normalized_action: str, case_domain: str, facts: dict[str, Any]) -> int:
+    bonus = 0
+    if case_domain.casefold() == "divorcio" and facts.get("hay_hijos") is True:
+        if any(token in normalized_action for token in ("hijos", "cuidado", "comunicacion", "alimentos")):
+            bonus += 25
+        if any(token in normalized_action for token in ("vivienda", "hogar", "bienes")):
+            bonus -= 5
+    if case_domain.casefold() == "divorcio" and facts.get("convenio_regulador") is True:
+        if any(token in normalized_action for token in ("homolog", "base de calculo", "ejecutable", "clausula")):
+            bonus += 20
+    return bonus
 
 
 def _pick_reactive_quick_start_action(

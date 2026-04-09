@@ -887,14 +887,16 @@ def _actions_alimentos(lines: list[str], case_profile: dict, scenarios: set[str]
 
 
 def _actions_divorcio(lines: list[str], case_profile: dict, scenarios: set[str]) -> None:
+    if "hijos" in scenarios:
+        lines.append("Ordenar primero cuidado personal, regimen comunicacional y alimentos de los hijos dentro de la propuesta reguladora.")
     if "unilateral" in scenarios:
         lines.append("Redactar propuesta reguladora unilateral con todos los efectos del divorcio (art. 438 CCyC): atribucion del hogar, bienes, alimentos y situacion de hijos.")
     if "conjunto" in scenarios:
         lines.append("Verificar que el convenio regulador conjunto cubra atribucion del hogar, regimen de bienes, alimentos y situacion de hijos.")
-    if "bienes" in scenarios:
-        lines.append("Inventariar bienes, definir caracter ganancial o propio y proponer criterio de liquidacion o adjudicacion.")
     if "hijos" in scenarios:
         lines.append("Incluir en la propuesta cuidado personal, regimen comunicacional y alimentos para los hijos.")
+    if "bienes" in scenarios:
+        lines.append("Inventariar bienes, definir caracter ganancial o propio y proponer criterio de liquidacion o adjudicacion.")
     if "violencia" in scenarios:
         lines.append("Solicitar de forma autonoma o acumulada las medidas de proteccion: exclusion del hogar, restriccion perimetral y toda cautelar que corresponda.")
     if case_profile.get("vulnerability"):

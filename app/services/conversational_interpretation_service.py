@@ -96,6 +96,36 @@ _YES_NO_SLOT_FACTS: dict[str, str] = {
     "urgencia": "urgencia",
 }
 
+_STRUCTURAL_BOOLEAN_FACTS = {
+    "hay_hijos",
+    "hay_acuerdo",
+    "hay_bienes",
+    "urgencia",
+    "vivienda_familiar",
+    "aportes_actuales",
+    "notificacion",
+}
+
+_HUMAN_QUESTION_TEMPLATES: dict[str, str] = {
+    "hay_hijos": "Tienen hijos menores o alguna situacion que requiera definir cuidado, comunicacion o alimentos?",
+    "aportes_actuales": "Hoy la otra persona esta aportando algo de manera fija, esporadica o nada?",
+    "convivencia": "Hoy el nino o la nina vive con vos, con la otra persona o van alternando?",
+    "notificacion": "Tenes algun dato util para ubicar a la otra persona, como domicilio, trabajo o telefono?",
+    "ingresos_otro_progenitor": "Sabes si la otra persona tiene ingresos fijos, trabajo estable o alguna actividad conocida?",
+    "domicilio_relevante": "En que ciudad vive hoy la otra persona o donde corresponderia tramitar el caso?",
+    "modalidad_divorcio": "El divorcio seria de comun acuerdo o solo una parte quiere avanzar?",
+}
+
+_SLOT_HUMAN_LABELS: dict[str, str] = {
+    "hay_hijos": "si hay hijos y que situacion familiar hay que ordenar",
+    "aportes_actuales": "si hoy hay algun aporte economico",
+    "convivencia": "como esta organizada la convivencia",
+    "notificacion": "como se puede ubicar a la otra persona",
+    "ingresos_otro_progenitor": "que se sabe de los ingresos de la otra persona",
+    "domicilio_relevante": "donde conviene tramitar o ubicar el caso",
+    "modalidad_divorcio": "si el divorcio seria de comun acuerdo o unilateral",
+}
+
 
 def interpret_clarification_answer(
     *,
@@ -121,7 +151,12 @@ def interpret_clarification_answer(
             normalized_answer=normalized_answer,
             canonical_slot=canonical_slot,
         )
-    merged_facts = {**memory_facts, **safe_extracted_facts}
+    merged_facts = _merge_answer_facts(
+        known_facts=safe_known_facts,
+        memory_facts=memory_facts,
+        extracted_facts=safe_extracted_facts,
+        normalized_answer=normalized_answer,
+    )
     merged_clarified_fields = _dedupe_strings([*safe_clarified_fields, *merged_facts.keys()])
 
     user_cannot_answer = _looks_user_cannot_answer(normalized_answer)
@@ -132,6 +167,14 @@ def interpret_clarification_answer(
         merged_facts=merged_facts,
         known_facts=safe_known_facts,
     )
+    if contradictory and _should_accept_current_turn_override(
+        canonical_slot=canonical_slot,
+        normalized_answer=normalized_answer,
+        known_facts=safe_known_facts,
+        merged_facts=merged_facts,
+        extracted_facts=safe_extracted_facts,
+    ):
+        contradictory = False
     repeated_slot = _is_repeated_slot(
         canonical_slot=canonical_slot,
         asked_questions=safe_asked_questions,
@@ -443,3 +486,194 @@ def _dedupe_strings(items: list[str]) -> list[str]:
         seen.add(normalized)
         result.append(_clean_text(item))
     return result
+
+
+def _merge_answer_facts(
+    *,
+    known_facts: dict[str, Any],
+    memory_facts: dict[str, Any],
+    extracted_facts: dict[str, Any],
+    normalized_answer: str,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for source in (memory_facts, extracted_facts):
+        for key, value in dict(source or {}).items():
+            normalized_key = _normalize_key(key)
+            if not _has_meaningful_value(value):
+                continue
+            current = merged.get(normalized_key)
+            merged[normalized_key] = _pick_more_reliable_fact_value(
+                key=normalized_key,
+                current_value=current,
+                incoming_value=value,
+                normalized_answer=normalized_answer,
+            )
+
+    if merged.get("hay_hijos_edad") and "hay_hijos" not in merged:
+        merged["hay_hijos"] = True
+    if merged.get("divorcio_modalidad") == "conjunto" and "hay_acuerdo" not in merged:
+        merged["hay_acuerdo"] = True
+    if merged.get("divorcio_modalidad") == "unilateral" and "hay_acuerdo" not in merged:
+        merged["hay_acuerdo"] = False
+
+    for key, value in list(merged.items()):
+        aliases = _resolve_aliases(key)
+        previous_value = next(
+            (
+                known_facts.get(alias)
+                for alias in aliases
+                if alias in known_facts and _has_meaningful_value(known_facts.get(alias))
+            ),
+            None,
+        )
+        merged[key] = _pick_more_reliable_fact_value(
+            key=key,
+            current_value=previous_value,
+            incoming_value=value,
+            normalized_answer=normalized_answer,
+        )
+
+    return {key: value for key, value in merged.items() if _has_meaningful_value(value)}
+
+
+def _pick_more_reliable_fact_value(
+    *,
+    key: str,
+    current_value: Any,
+    incoming_value: Any,
+    normalized_answer: str,
+) -> Any:
+    if current_value is None:
+        return incoming_value
+    if _normalize_scalar(current_value) == _normalize_scalar(incoming_value):
+        return incoming_value
+    if key in _STRUCTURAL_BOOLEAN_FACTS and isinstance(incoming_value, bool):
+        return incoming_value
+    if key == "hay_hijos" and _answer_explicitly_mentions_children(normalized_answer):
+        return True if incoming_value is True else incoming_value
+    if _fact_precision_score(key=key, value=incoming_value, normalized_answer=normalized_answer) >= _fact_precision_score(
+        key=key,
+        value=current_value,
+        normalized_answer="",
+    ):
+        return incoming_value
+    return current_value
+
+
+def _fact_precision_score(*, key: str, value: Any, normalized_answer: str) -> int:
+    score = 0
+    if isinstance(value, bool):
+        score += 20 if key in _STRUCTURAL_BOOLEAN_FACTS else 10
+    elif isinstance(value, str):
+        normalized_value = _normalize_text(value)
+        if normalized_value:
+            score += min(len(normalized_value), 40)
+        if normalized_value in {"unilateral", "conjunto", "informada"}:
+            score += 15
+    elif _has_meaningful_value(value):
+        score += 10
+
+    if key == "hay_hijos" and _answer_explicitly_mentions_children(normalized_answer):
+        score += 30
+    if key == "hay_hijos_edad" and _answer_mentions_children_age(normalized_answer):
+        score += 30
+    if key == "divorcio_modalidad" and any(
+        token in normalized_answer for token in ("unilateral", "comun acuerdo", "mutuo acuerdo", "conjunto", "solo yo")
+    ):
+        score += 20
+    return score
+
+
+def _should_accept_current_turn_override(
+    *,
+    canonical_slot: str,
+    normalized_answer: str,
+    known_facts: dict[str, Any],
+    merged_facts: dict[str, Any],
+    extracted_facts: dict[str, Any],
+) -> bool:
+    structural_keys = {"hay_hijos", "hay_acuerdo", "divorcio_modalidad", "hay_bienes", "urgencia"}
+    if canonical_slot in {"hay_hijos", "modalidad_divorcio"}:
+        structural_keys.add(canonical_slot)
+
+    for key in structural_keys:
+        if key not in merged_facts or key not in known_facts:
+            continue
+        previous_value = known_facts.get(key)
+        current_value = merged_facts.get(key)
+        if not _has_meaningful_value(previous_value):
+            continue
+        if _normalize_scalar(previous_value) == _normalize_scalar(current_value):
+            continue
+        if key == "hay_hijos" and (
+            _answer_explicitly_mentions_children(normalized_answer) or extracted_facts.get("hay_hijos_edad")
+        ):
+            return True
+        if key in {"hay_acuerdo", "divorcio_modalidad"} and any(
+            token in normalized_answer for token in ("unilateral", "comun acuerdo", "mutuo acuerdo", "conjunto", "solo yo")
+        ):
+            return True
+        if key in {"hay_bienes", "urgencia"} and len(normalized_answer.split()) >= 4:
+            return True
+    return False
+
+
+def _answer_explicitly_mentions_children(normalized_answer: str) -> bool:
+    return bool(
+        re.search(
+            r"\bhij[oa]s?\b|\bmi hija\b|\bmi hijo\b|\bmis hijas\b|\bmis hijos\b|\bbebe\b|\bnena\b|\bnene\b|\bmenor(?:es)?\b",
+            normalized_answer,
+        )
+    )
+
+
+def _looks_internal_slot_phrase(normalized_text: str) -> bool:
+    if not normalized_text:
+        return True
+    if normalized_text.startswith(("por ejemplo", "eso me ayuda", "eso sirve", "me lo podes")):
+        return True
+    if len(normalized_text.split()) <= 2:
+        return True
+    return any(
+        token in normalized_text
+        for token in (
+            "capacidad restringida",
+            "dato faltante",
+            "dato clave",
+            "si hay hijos",
+            "existen hijos",
+            "modalidad divorcio",
+            "domicilio relevante",
+            "ingresos otro progenitor",
+        )
+    )
+
+
+def _ensure_question_format(*, question: str, canonical_slot: str) -> str:
+    base = _clean_text(question)
+    base = base.replace("Â¿", "").replace("¿", "").replace("?", "").strip(" .,:;")
+    if not base or _looks_internal_slot_phrase(_normalize_text(base)):
+        base = _HUMAN_QUESTION_TEMPLATES.get(canonical_slot, "Me lo podes aclarar un poco mejor")
+    if base and base[0].islower():
+        base = base[0].upper() + base[1:]
+    if not base.endswith("?"):
+        base = f"{base}?"
+    return base
+
+
+def _build_reformulated_question(
+    *,
+    canonical_slot: str,
+    last_question: str,
+    response_quality: str,
+) -> str:
+    if response_quality not in {"ambiguous", "insufficient"}:
+        return ""
+    simplified = simplify_question_text(last_question, canonical_slot).strip()
+    return _ensure_question_format(question=simplified, canonical_slot=canonical_slot)
+
+
+def _humanize_slot(slot: str) -> str:
+    if not slot:
+        return ""
+    return _SLOT_HUMAN_LABELS.get(slot, slot.replace("_", " ").strip())
