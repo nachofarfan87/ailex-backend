@@ -676,11 +676,16 @@ def compose(
         body_paras = [p.strip() for p in re.split(r"\n{2,}", body_text) if p.strip()]
         question_paras = [p for p in body_paras if "?" in p]
         content_paras = [p for p in body_paras if "?" not in p]
-        content_paras = _trim_content_before_question(
-            content_paras=content_paras,
-            turn_type=turn_type,
-            output_mode=output_mode,
+        allow_full_content = (
+            turn_type == "guided_followup"
+            and guidance_strength in ("medium", "high")
         )
+        if not allow_full_content:
+            content_paras = _trim_content_before_question(
+                content_paras=content_paras,
+                turn_type=turn_type,
+                output_mode=output_mode,
+            )
 
         if content_paras and question_paras:
             if body_bridge:
