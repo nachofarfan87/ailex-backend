@@ -5,6 +5,14 @@ from typing import Any
 
 
 _SLOT_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "hay_hijos": (
+        "hay_hijos",
+        "hijos",
+        "hijos_en_comun",
+        "hijos_menores",
+        "hijos_menores_o_con_capacidad_restringida",
+        "existencia_hijos",
+    ),
     "aportes_actuales": (
         "aportes_actuales",
         "aporte_actual",
@@ -47,6 +55,12 @@ _SLOT_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
 }
 
 _QUESTION_SLOT_PATTERNS: dict[str, tuple[str, ...]] = {
+    "hay_hijos": (
+        r"hay hijos",
+        r"hijos en comun",
+        r"hijos menores",
+        r"capacidad restringida",
+    ),
     "aportes_actuales": (
         r"aportando algo actualmente",
         r"pasa algo de plata",

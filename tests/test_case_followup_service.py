@@ -437,6 +437,59 @@ def test_simplifica_pregunta_tecnica_en_etapa_temprana_de_divorcio():
     assert "acuerdo" in followup["question"].lower()
 
 
+def test_simplifica_followup_largo_de_hijos_a_version_respondible():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::hay_hijos",
+                    "resolved_by_fact_key": "hay_hijos",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "Existen hijos menores o con capacidad restringida y que cuestiones de cuidado, comunicacion y alimentos deben regularse",
+                },
+            ],
+            case_stage="recopilacion_hechos",
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "query": "Me quiero separar",
+            "case_domain": "divorcio",
+        },
+        "recopilacion_hechos",
+    )
+
+    assert followup["should_ask"] is True
+    assert "capacidad restringida" not in followup["question"].lower()
+    assert "comunicacion y alimentos" not in followup["question"].lower()
+    assert "hijos" in followup["question"].lower()
+    assert len(followup["question"]) < 40
+
+
+def test_no_repite_followup_de_hijos_si_ya_esta_resuelto_en_facts_del_turno():
+    followup = build_case_followup(
+        _snapshot(
+            open_needs=[
+                {
+                    "need_key": "hecho::hay_hijos",
+                    "resolved_by_fact_key": "hay_hijos",
+                    "category": "hecho",
+                    "priority": "critical",
+                    "suggested_question": "Hay hijos menores o con capacidad restringida?",
+                },
+            ]
+        ),
+        {
+            **_api_payload(blocking_missing=True),
+            "facts": {"hay_hijos": False},
+        },
+        "estructuracion",
+    )
+
+    assert followup["should_ask"] is False
+    assert followup["question"] == ""
+
+
 def test_no_pregunta_en_loop_si_el_usuario_no_logra_precisar():
     followup = build_case_followup(
         _snapshot(

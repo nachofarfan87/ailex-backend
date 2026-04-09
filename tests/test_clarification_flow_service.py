@@ -137,3 +137,25 @@ def test_followup_ambiguo_mantiene_limite_y_repregunta():
     assert context["response_strategy"] == "clarify"
     assert context["precision_required"] is True
     assert context["limit_explanation"]
+
+
+def test_respuesta_sin_hijos_consolida_slot_y_no_lo_deja_ambiguo():
+    prepared = prepare_legal_query_turn(
+        query="Sin hijos",
+        facts={},
+        metadata={
+            "clarification_context": {
+                "base_query": "Quiero divorciarme",
+                "case_domain": "divorcio",
+                "last_question": "Â¿Hay hijos menores o con capacidad restringida?",
+                "asked_questions": ["Â¿Hay hijos menores o con capacidad restringida?"],
+                "known_facts": {},
+            }
+        },
+    )
+
+    context = prepared.metadata["clarification_context"]
+
+    assert context["known_facts"]["hay_hijos"] is False
+    assert context["answer_status"] == "precise"
+    assert context["response_strategy"] == "advance"

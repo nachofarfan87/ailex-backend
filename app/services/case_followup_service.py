@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from app.services.conversation_integrity_service import build_integrity_state, canonicalize_slot
+from app.services.conversational.conversational_quality import simplify_question_text
 
 _GENERIC_QUESTION_PATTERNS = (
     "mas contexto",
@@ -18,6 +19,9 @@ _TECHNICAL_QUESTION_PATTERNS = (
     "etapa procesal",
     "encuadre procesal",
     "competencia",
+    "capacidad restringida",
+    "cuestiones de cuidado",
+    "comunicacion y alimentos",
 )
 
 _EARLY_CASE_STAGES = {
@@ -353,6 +357,11 @@ class CaseFollowupService:
         need_key = str(need.get("need_key") or "").strip().lower()
         category = str(need.get("category") or "").strip().lower()
         need_type = str(need.get("type") or "").strip().lower()
+        canonical_slot = canonicalize_slot(
+            need_key=need_key,
+            resolved_by_fact_key=fact_key,
+            question=suggested_question,
+        )
 
         if self._looks_like_divorce_context(
             api_payload=api_payload,
@@ -366,8 +375,13 @@ class CaseFollowupService:
                 return "Â¿El divorcio serÃ­a de comÃºn acuerdo o no?"
             if fact_key in {"convivencia_actual", "separacion_actual"}:
                 return "Â¿Ya estÃ¡n separados o todavÃ­a conviven?"
-            if fact_key == "hijos":
+            if fact_key == "hijos" or canonical_slot == "hay_hijos":
                 return "Â¿Tienen hijos en comÃºn?"
+
+        if canonical_slot in {"hay_hijos", "hay_hijos_edad"}:
+            return self._normalize_question(
+                simplify_question_text(suggested_question or "", canonical_slot)
+            )
 
         if need_type == "contradiction":
             label = self._humanize_key(fact_key or need_key)
@@ -404,9 +418,9 @@ class CaseFollowupService:
             return False
         if case_stage not in _EARLY_CASE_STAGES and output_mode not in {"recopilacion_hechos", "orientacion_inicial"}:
             return True
-        if not any(pattern in normalized for pattern in _TECHNICAL_QUESTION_PATTERNS):
-            return True
-        return False
+        if any(pattern in normalized for pattern in _TECHNICAL_QUESTION_PATTERNS):
+            return False
+        return len(normalized) <= 90
 
     def _looks_like_divorce_context(
         self,
@@ -477,6 +491,7 @@ class CaseFollowupService:
         for source in (
             dict(snapshot.get("probable_facts") or {}),
             dict(snapshot.get("confirmed_facts") or {}),
+            dict(api_payload.get("facts") or {}),
         ):
             for key, value in source.items():
                 canonical = self._canonical_key(key)
