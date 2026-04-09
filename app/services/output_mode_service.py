@@ -531,8 +531,9 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         summary_source,
         quick_start,
     )
+    core_action_steps = _dedupe_strs(_to_user_list(core_legal_response.get("action_steps") or []))[:5]
     next_steps = _to_user_list(case_strategy.get("recommended_actions") or [])
-    next_steps = _dedupe_strs([*next_steps, *_to_user_list(case_profile.get("strategic_focus") or [])])
+    next_steps = _dedupe_strs([*core_action_steps, *next_steps, *_to_user_list(case_profile.get("strategic_focus") or [])])
     if not next_steps and quick_start:
         next_steps = [_strip_known_prefix(quick_start, "Primer paso recomendado:")]
 
@@ -549,6 +550,9 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         response,
         known_facts=known_facts,
     )
+    if core_action_steps:
+        primary_action = core_action_steps[0]
+        supporting_actions = [item for item in next_steps if _normalize_text(item) != _normalize_text(primary_action)]
     raw_quick_start_body = _strip_known_prefix(quick_start, "Primer paso recomendado:")
     quick_start_value = quick_start
     if (
@@ -584,12 +588,32 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
     if conversational.get("should_ask_first"):
         decisive_question = _clean_text(conversational.get("question"))
         guided_response = _clean_text(conversational.get("guided_response"))
+        has_core_guidance = bool(_to_user_text(core_legal_response.get("direct_answer")))
+        conversational_next_step = _clean_text(conversational.get("next_step"))
+        question_first_actions = (
+            core_action_steps
+            if core_action_steps
+            else ([conversational_next_step] if conversational_next_step and not _looks_like_question_prompt(conversational_next_step) else ([primary_action] if primary_action else []))
+        )
+        clarification_hint = guided_response
+        if clarification_hint and has_core_guidance:
+            normalized_hint = _normalize_text(clarification_hint)
+            if any(
+                phrase in normalized_hint
+                for phrase in (
+                    "ya tengo la base",
+                    "necesito confirmar un punto",
+                    "necesito confirmar",
+                    "persisten cuestiones normativas",
+                )
+            ):
+                clarification_hint = ""
         return {
             "title": _question_first_title(case_domain),
-            "summary": guided_response or summary,
+            "summary": summary if has_core_guidance else (guided_response or summary),
             "quick_start": "",
-            "what_this_means": guided_response or what_this_means,
-            "next_steps": [primary_action] if primary_action else [],
+            "what_this_means": what_this_means if has_core_guidance else (guided_response or what_this_means),
+            "next_steps": question_first_actions,
             "key_risks": [],
             "missing_information": _dedupe_strs([
                 *(_to_user_list(conversational.get("missing_facts") or [])),
@@ -598,7 +622,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
             "required_documents": required_documents,
             "local_practice_notes": local_practice_notes,
             "optional_clarification": decisive_question or _clean_text(core_legal_response.get("optional_clarification")),
-            "guided_followup": guided_response,
+            "guided_followup": clarification_hint,
             "confidence_explained": "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
         }
 
@@ -607,7 +631,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         "summary": summary,
         "quick_start": quick_start_value,
         "what_this_means": what_this_means,
-        "next_steps": supporting_actions[:5] if supporting_actions else _dedupe_strs(next_steps)[:5],
+        "next_steps": _dedupe_strs(next_steps)[:5] if core_action_steps else (supporting_actions[:5] if supporting_actions else _dedupe_strs(next_steps)[:5]),
         "key_risks": _dedupe_strs(key_risks)[:5],
         "missing_information": _dedupe_strs(missing_information)[:5],
         "required_documents": required_documents,

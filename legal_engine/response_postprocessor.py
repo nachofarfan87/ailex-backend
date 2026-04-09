@@ -617,6 +617,12 @@ class ResponsePostprocessor:
         """
         conversation_state = api_payload.get("conversation_state")
         dialogue_policy = api_payload.get("dialogue_policy")
+        core_legal_response = dict(api_payload.get("core_legal_response") or {})
+        if (
+            str(core_legal_response.get("direct_answer") or "").strip()
+            and list(core_legal_response.get("action_steps") or [])
+        ):
+            return response_text
 
         if not isinstance(conversation_state, dict) or not conversation_state:
             return response_text

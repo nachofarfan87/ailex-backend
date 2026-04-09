@@ -732,6 +732,40 @@ def test_build_response_text_prioritizes_core_legal_response_over_guided_only():
     assert "Necesito confirmar un dato antes de orientarte." not in text
 
 
+def test_apply_conversation_composer_does_not_override_focus_driven_core_response(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    processor = ResponsePostprocessor()
+    called = {"value": False}
+
+    def fake_compose(**_kwargs):
+        called["value"] = True
+        return {"composed_response_text": "Ya tengo la base. Necesito confirmar un punto."}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.conversation_composer_service",
+        SimpleNamespace(compose=fake_compose),
+    )
+
+    response_text = "El foco principal es ordenar cuidado personal, comunicacion y alimentos."
+    result = processor._apply_conversation_composer(  # noqa: SLF001
+        api_payload={
+            "conversation_state": {"turn_count": 2},
+            "dialogue_policy": {"action": "hybrid"},
+            "core_legal_response": {
+                "direct_answer": "El foco principal es ordenar cuidado personal, comunicacion y alimentos.",
+                "action_steps": ["Definir una propuesta concreta sobre cuidado personal."],
+            },
+        },
+        response_text=response_text,
+    )
+
+    assert result == response_text
+    assert called["value"] is False
+
+
 def test_attach_case_followup_veta_followup_legacy_si_adaptive_lo_suprime(monkeypatch):
     processor = ResponsePostprocessor()
     api_payload = {

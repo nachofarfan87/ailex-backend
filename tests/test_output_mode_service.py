@@ -1369,6 +1369,39 @@ def test_question_first_keeps_action_separate_from_followup_question():
     assert "cuidado personal" in (conversational["next_step"] or "").lower()
 
 
+def test_question_first_keeps_core_focus_in_summary_and_steps():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["conversational"] = {
+        "should_ask_first": True,
+        "question": "Hay hijos menores?",
+        "guided_response": "Ya tengo la base. Necesito confirmar un punto.",
+        "missing_facts": [],
+    }
+    payload["core_legal_response"] = {
+        "direct_answer": (
+            "El punto principal no es solo iniciar el divorcio.\n"
+            "Como hay una bebe de meses, conviene ordenar primero cuidado personal, comunicacion y alimentos.\n"
+            "Eso deberia guiar la presentacion inicial."
+        ),
+        "action_steps": [
+            "Definir una propuesta concreta sobre cuidado personal, comunicacion y alimentos.",
+            "Reunir partidas y comprobantes de gastos de la bebe.",
+        ],
+        "required_documents": ["DNI", "Partida de nacimiento"],
+        "local_practice_notes": ["En Jujuy conviene que ese eje entre desde la presentacion inicial."],
+        "optional_clarification": "Hay hijos menores?",
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    user_output = result["output_modes"]["user"]
+
+    assert "cuidado personal" in user_output["summary"].lower()
+    assert "alimentos" in user_output["what_this_means"].lower()
+    assert "cuidado personal" in " ".join(user_output["next_steps"]).lower()
+    assert "ya tengo la base" not in str(user_output.get("guided_followup") or "").lower()
+
+
 def test_divorce_with_children_prioritizes_parental_action_over_housing():
     payload = _refined_response()
     payload["case_domain"] = "divorcio"
