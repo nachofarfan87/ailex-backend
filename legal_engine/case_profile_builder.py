@@ -662,7 +662,7 @@ def _build_regimen_comunicacional(
         focus.append("justificar modificacion del regimen con cambio de circunstancias")
     if "fijacion" in scenarios:
         focus.append("fijar regimen comunicacional con esquema concreto de dias, horarios y modalidad")
-    if "pernocte" in escenarios := scenarios:
+    if "pernocte" in scenarios:
         focus.append("incluir pernocte en el regimen propuesto")
     if "vacaciones" in scenarios:
         focus.append("prever distribucion de vacaciones y feriados")
