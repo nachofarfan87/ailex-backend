@@ -1,3 +1,4 @@
+# backend/app/services/strategic_decision_service.py
 from __future__ import annotations
 
 import re
@@ -232,6 +233,15 @@ def _score_candidate(*, candidate: dict[str, Any], signals: dict[str, Any]) -> t
     profiles = _as_dict(candidate.get("profiles"))
     score = 0
     reasons: list[str] = []
+
+    candidate_id = _clean_text(candidate.get("id"))
+
+    # Hard guard de dominio:
+    # si el dominio principal ya es divorcio, una estrategia de alimentos pura
+    # no puede desplazarla salvo que el caso no tenga vía de divorcio activa.
+    if signals["case_domain"] == "divorcio" and candidate_id.startswith("alimentos_"):
+        score -= 8
+        reasons.append("el caso principal sigue siendo divorcio y alimentos funciona como efecto asociado")
 
     agreement_profile = _clean_text(profiles.get("agreement")).lower()
     if signals["clear_agreement"]:
@@ -512,8 +522,9 @@ def _build_case_signals(
     query = _clean_text(pipeline_payload.get("query"))
     classification = _as_dict(pipeline_payload.get("classification"))
     action_slug = _clean_text(classification.get("action_slug")).lower()
+    case_profile = _as_dict(pipeline_payload.get("case_profile"))
     case_domain = _clean_text(
-        _as_dict(pipeline_payload.get("case_profile")).get("case_domain")
+        case_profile.get("case_domain")
         or classification.get("case_domain")
         or pipeline_payload.get("case_domain")
     ).lower()
@@ -527,7 +538,7 @@ def _build_case_signals(
         or "divorcio" in topics
     )
     if not involves_divorce:
-        involves_divorce = "divorcio" in normalized_query
+        involves_divorce = "divorcio" in normalized_query or "divorci" in normalized_query
 
     involves_alimentos = (
         _is_topic_present(facts.get("tema_alimentos"), allow_inferred=True)
@@ -537,6 +548,7 @@ def _build_case_signals(
     )
     if not involves_alimentos:
         involves_alimentos = "alimento" in normalized_query
+
     has_children = _resolve_has_children(facts=facts, query=query, action_slug=action_slug)
     has_minor_children = _resolve_has_minor_children(facts=facts, query=query, has_children=has_children)
     clear_agreement = _resolve_clear_agreement(facts=facts, query=query)
@@ -546,8 +558,17 @@ def _build_case_signals(
     simple_urgency = _resolve_simple_urgency(facts=facts, query=query)
     ended_cohabitation = _resolve_ended_cohabitation(facts=facts, query=query)
 
+    resolved_domain = case_domain
+    if not resolved_domain:
+        if involves_divorce:
+            resolved_domain = "divorcio"
+        elif involves_alimentos:
+            resolved_domain = "alimentos"
+        else:
+            resolved_domain = ""
+
     return {
-        "case_domain": case_domain or ("divorcio" if involves_divorce else "alimentos" if involves_alimentos else ""),
+        "case_domain": resolved_domain,
         "involves_divorce": involves_divorce,
         "involves_alimentos": involves_alimentos,
         "has_children": has_children,

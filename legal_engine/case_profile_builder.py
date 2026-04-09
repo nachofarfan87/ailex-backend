@@ -1,3 +1,4 @@
+# backend/legal_engine/case_profile_builder.py
 """
 Case profile builder — separates case analysis from text generation.
 
@@ -49,6 +50,7 @@ _KEYWORD_DOMAIN: list[tuple[tuple[str, ...], str]] = [
             "divorcio", "divorciar", "disolucion del vinculo",
             "disolucion vincular", "separacion personal",
             "separarme legalmente", "separacion legal",
+            "divorciarme", "divorciarnos", "separarme", "separarnos",
         ),
         "divorcio",
     ),
@@ -90,6 +92,12 @@ _KEYWORD_DOMAIN: list[tuple[tuple[str, ...], str]] = [
 #      pero no es la pretensión sustantiva principal.
 #   5. conflicto_patrimonial — patrimonial puro; menor urgencia
 #      personal que las anteriores.
+#
+# IMPORTANTE:
+# Aunque la prioridad general favorezca alimentos por urgencia,
+# la intención nuclear expresa del usuario prevalece para evitar que
+# un "quiero divorciarme" se convierta en "alimentos" por señales
+# secundarias.
 # ---------------------------------------------------------------------------
 
 _DOMAIN_PRIORITY: list[str] = [
@@ -158,8 +166,6 @@ def _detect_domains(action_slug: str, text: str, *, query_text: str = "") -> lis
     sorted_domains = sorted(found, key=lambda d: priority_index.get(d, 999))
 
     # --- Explicit divorce intent override ---
-    # If the user's own query expresses direct divorce intention, force
-    # divorcio as primary.  Secondary domains remain but cannot displace it.
     if "divorcio" in sorted_domains and _query_has_explicit_divorce_intent(query_text):
         sorted_domains = ["divorcio"] + [d for d in sorted_domains if d != "divorcio"]
 
@@ -181,28 +187,47 @@ _EXPLICIT_DIVORCE_INTENT: tuple[str, ...] = (
     "separacion legal",
     "divorcio vincular",
     "disolucion del vinculo",
+    "como puedo divorciarme",
+    "como me divorcio",
+    "como divorciarme",
+    "que necesito para divorciarme",
+    "que tengo que hacer para divorciarme",
+    "como iniciar el divorcio",
+    "quiero separarme",
+    "me quiero separar",
+    "como puedo separarme",
+    "que necesito para separarme",
 )
 
 
 def _query_has_explicit_divorce_intent(query_text: str) -> bool:
-    """Return True if the normalized *query* (not enriched text) expresses
-    direct divorce intent.  A bare mention of 'divorcio' as the sole
-    meaningful token also qualifies (e.g. the user typed just 'divorcio').
-    """
+    """Return True if the normalized *query* expresses direct divorce intent."""
     if not query_text:
         return False
+
     q = query_text.strip()
-    # Bare single-word 'divorcio'
-    if q in ("divorcio", "divorciarse", "divorciarme"):
+
+    if q in ("divorcio", "divorciarse", "divorciarme", "separarme", "separacion"):
         return True
-    return any(pattern in q for pattern in _EXPLICIT_DIVORCE_INTENT)
+
+    if any(pattern in q for pattern in _EXPLICIT_DIVORCE_INTENT):
+        return True
+
+    # Fallback robusto:
+    # cualquier formulación que combine verbo de consulta/acción + divorcio/separación
+    if re.search(
+        r"\b(como|qué|que|quiero|necesito|puedo|podria|debo|tengo que|iniciar|tramitar|pedir)\b.*\b(divorci|divorcio|separar|separarme|separacion)\b",
+        q,
+    ):
+        return True
+
+    return False
 
 
 # ---------------------------------------------------------------------------
 # Downstream alignment: action_slug ↔ case_domain
 # ---------------------------------------------------------------------------
 
-# Canonical slug per domain family — used when an action_slug needs correction.
 _DOMAIN_TO_CANONICAL_SLUG: dict[str, str] = {
     "divorcio": "divorcio_unilateral",
     "alimentos": "alimentos_hijos",
@@ -219,18 +244,6 @@ def align_classification_with_domain(
 ) -> dict[str, Any]:
     """Ensure action_slug is consistent with case_domain when explicit intent
     forced a domain override.
-
-    Returns a *new* classification dict (shallow copy) if correction was
-    needed, or the original if already aligned.
-
-    Only corrects when ALL of the following hold:
-      1. case_domain is set and differs from the slug's domain family.
-      2. The user's query contains explicit intent for the winning domain.
-      3. The slug maps to a different domain family.
-
-    This prevents downstream consumers (model_library, argument generator)
-    from operating on a stale slug while case_domain has already been
-    corrected by the domain-priority override.
     """
     if not case_domain:
         return classification
@@ -238,13 +251,9 @@ def align_classification_with_domain(
     action_slug = str(classification.get("action_slug") or "").strip()
     slug_domain = _SLUG_TO_DOMAIN.get(action_slug)
 
-    # Already aligned — nothing to do.
     if slug_domain == case_domain:
         return classification
 
-    # Only override if the user expressed explicit intent for the winning
-    # domain.  Currently only divorce-override is implemented; extend the
-    # check here if other domains need similar treatment.
     query_text = _normalize_text(query)
     needs_override = False
     if case_domain == "divorcio" and _query_has_explicit_divorce_intent(query_text):
@@ -277,18 +286,7 @@ def build_case_profile(
     procedural_plan: Any | None,
     facts: dict[str, str],
 ) -> dict[str, Any]:
-    """Build a structured case profile from pipeline inputs.
-
-    Returns a dict with:
-      - case_domain: str | None          (primary domain)
-      - case_domains: list[str]          (all detected domains, priority-ordered)
-      - is_alimentos: bool               (backward compat)
-      - scenarios: set[str]              (from primary domain builder)
-      - urgency_level: "high" | "medium" | "low"
-      - vulnerability: bool
-      - needs_proof_strengthening: bool
-      - strategic_focus: list[str]
-    """
+    """Build a structured case profile from pipeline inputs."""
     action_slug = str(classification.get("action_slug") or "").strip()
     query_text = _normalize_text(query)
     text = _collect_text(
@@ -311,11 +309,9 @@ def build_case_profile(
         normative_reasoning=normative_reasoning,
     )
 
-    # Inject multi-domain fields
     profile["case_domains"] = domains
     profile["input_facts"] = dict(facts or {})
 
-    # Add cross-domain strategic focus when multiple domains are present
     if len(domains) > 1:
         _add_cross_domain_focus(profile, domains)
 
@@ -394,10 +390,8 @@ def _build_alimentos(
     )):
         scenarios.add("vivienda")
 
-    # vulnerability
     vulnerability = _detect_vulnerability(text)
 
-    # urgency
     urgent = (
         any(token in text for token in (
             "urgencia", "embargo", "retencion", "feria",
@@ -407,13 +401,11 @@ def _build_alimentos(
     )
     urgency_level = "high" if urgent else ("medium" if scenarios else "low")
 
-    # proof strengthening
     needs_proof = (
         bool(scenarios & {"cuota_provisoria", "incumplimiento", "ascendientes", "hijo_mayor"})
         or vulnerability
     )
 
-    # strategic focus
     focus: list[str] = []
     if "incumplimiento" in scenarios:
         focus.append("acreditar incumplimiento alimentario")
@@ -458,13 +450,11 @@ def _build_conflicto_patrimonial(
 ) -> dict[str, Any]:
     scenarios: set[str] = set()
 
-    # cotitularidad
     if any(token in text for token in (
         "cotitular", "copropie", "condominio", "titularidad conjunta",
     )):
         scenarios.add("cotitularidad")
 
-    # bien ganancial / propio / heredado
     if any(token in text for token in ("ganancial", "sociedad conyugal")):
         scenarios.add("bien_ganancial")
     if any(token in text for token in ("bien propio", "bien personal")):
@@ -472,7 +462,6 @@ def _build_conflicto_patrimonial(
     if any(token in text for token in ("herencia", "heredado", "sucesorio")):
         scenarios.add("bien_heredado")
 
-    # conflicto vs acuerdo
     if any(token in text for token in (
         "acuerdo", "convenio", "liquidacion consensuada", "particion amigable",
     )):
@@ -483,13 +472,11 @@ def _build_conflicto_patrimonial(
     )):
         scenarios.add("conflicto")
 
-    # liquidacion
     if any(token in text for token in (
         "liquidacion", "particion", "division de bienes", "adjudicacion",
     )):
         scenarios.add("liquidacion")
 
-    # inmueble
     if any(token in text for token in (
         "inmueble", "propiedad", "departamento", "casa", "terreno", "lote",
     )):
@@ -543,7 +530,6 @@ def _build_divorcio(
 ) -> dict[str, Any]:
     scenarios: set[str] = set()
 
-    # unilateral vs conjunto
     if any(token in text for token in (
         "unilateral", "peticion unilateral", "voluntad unilateral",
     )):
@@ -553,18 +539,15 @@ def _build_divorcio(
         "de comun acuerdo",
     )):
         scenarios.add("conjunto")
-    # if neither detected, default to unilateral (CCyC 437)
     if not (scenarios & {"unilateral", "conjunto"}):
         scenarios.add("unilateral")
 
-    # bienes
     if any(token in text for token in (
         "bienes", "ganancial", "liquidacion", "particion",
         "sociedad conyugal", "bien inmueble",
     )):
         scenarios.add("bienes")
 
-    # hijos
     if any(token in text for token in (
         "hijo", "hija", "hijos", "menor", "menores",
         "progenitor", "alimentos", "cuidado personal",
@@ -572,13 +555,11 @@ def _build_divorcio(
     )):
         scenarios.add("hijos")
 
-    # convenio regulador
     if any(token in text for token in (
         "convenio regulador", "propuesta reguladora", "convenio",
     )):
         scenarios.add("convenio_regulador")
 
-    # violencia / urgencia
     if any(token in text for token in ("violencia", "restriccion", "exclusion del hogar")):
         scenarios.add("violencia")
 
@@ -627,7 +608,6 @@ def _build_regimen_comunicacional(
 ) -> dict[str, Any]:
     scenarios: set[str] = set()
 
-    # impedimento de contacto
     if any(token in text for token in (
         "impedimento", "obstruccion", "no deja ver",
         "no permite contacto", "impide el contacto",
@@ -635,28 +615,24 @@ def _build_regimen_comunicacional(
     )):
         scenarios.add("impedimento_contacto")
 
-    # revinculacion
     if any(token in text for token in (
         "revinculacion", "retomar contacto", "reconstruir vinculo",
         "tiempo sin ver",
     )):
         scenarios.add("revinculacion")
 
-    # ampliacion / modificacion
     if any(token in text for token in (
         "ampliar", "ampliacion", "modificar", "modificacion",
         "cambiar regimen", "mas tiempo",
     )):
         scenarios.add("modificacion")
 
-    # fijacion inicial
     if any(token in text for token in (
         "fijar regimen", "establecer regimen", "sin regimen",
         "no hay regimen", "primera vez",
     )):
         scenarios.add("fijacion")
 
-    # pernocte / vacaciones
     if any(token in text for token in ("pernocte", "pernoctar")):
         scenarios.add("pernocte")
     if any(token in text for token in ("vacaciones", "feriados", "receso")):
@@ -686,7 +662,7 @@ def _build_regimen_comunicacional(
         focus.append("justificar modificacion del regimen con cambio de circunstancias")
     if "fijacion" in scenarios:
         focus.append("fijar regimen comunicacional con esquema concreto de dias, horarios y modalidad")
-    if "pernocte" in scenarios:
+    if "pernocte" in escenarios := scenarios:
         focus.append("incluir pernocte en el regimen propuesto")
     if "vacaciones" in scenarios:
         focus.append("prever distribucion de vacaciones y feriados")
@@ -711,20 +687,17 @@ def _build_cuidado_personal(
 ) -> dict[str, Any]:
     scenarios: set[str] = set()
 
-    # centro de vida
     if any(token in text for token in (
         "centro de vida", "residencia habitual", "lugar donde vive",
     )):
         scenarios.add("centro_de_vida")
 
-    # convivencia actual
     if any(token in text for token in (
         "convive con", "vive con", "convivencia actual",
         "a cargo de", "bajo cuidado de",
     )):
         scenarios.add("convivencia_actual")
 
-    # modalidad
     if any(token in text for token in (
         "cuidado compartido", "cuidado alternado", "tenencia compartida",
         "compartido", "alternado",
@@ -735,21 +708,18 @@ def _build_cuidado_personal(
     )):
         scenarios.add("cuidado_unipersonal")
 
-    # interes superior
     if any(token in text for token in (
         "interes superior", "interes del nino", "interes de la nina",
         "derecho del nino", "convencion del nino",
     )):
         scenarios.add("interes_superior")
 
-    # cambio de cuidado / traslado
     if any(token in text for token in (
         "cambio de cuidado", "cambio de tenencia", "modificar cuidado",
         "traslado", "mudanza", "cambio de domicilio",
     )):
         scenarios.add("cambio_cuidado")
 
-    # riesgo
     if any(token in text for token in (
         "riesgo", "desproteccion", "abandono", "negligencia", "maltrato",
     )):
@@ -828,7 +798,7 @@ def _make_profile(
 ) -> dict[str, Any]:
     return {
         "case_domain": domain,
-        "case_domains": [domain],  # overwritten by build_case_profile
+        "case_domains": [domain],
         "is_alimentos": is_alimentos,
         "scenarios": scenarios,
         "urgency_level": urgency_level,
@@ -853,7 +823,6 @@ def _empty_profile() -> dict[str, Any]:
 
 
 def _add_cross_domain_focus(profile: dict[str, Any], domains: list[str]) -> None:
-    """Append cross-domain coordination entries to strategic_focus."""
     focus = profile["strategic_focus"]
     seen: set[frozenset[str]] = set()
     for i, d1 in enumerate(domains):
