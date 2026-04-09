@@ -63,6 +63,26 @@ def test_user_mode_preserves_quick_start():
     assert result["output_modes"]["user"]["quick_start"] == "Primer paso recomendado: Definir la via procesal aplicable."
 
 
+def test_user_mode_exposes_core_legal_response_blocks():
+    payload = _refined_response()
+    payload["core_legal_response"] = {
+        "direct_answer": "El divorcio puede orientarse con la informacion ya disponible.",
+        "action_steps": ["Preparar presentacion inicial.", "Ordenar propuesta reguladora."],
+        "required_documents": ["DNI y acta de matrimonio."],
+        "local_practice_notes": ["En Jujuy conviene ordenar la propuesta reguladora desde el inicio."],
+        "professional_frame": {"checklist": ["Competencia", "Propuesta reguladora"]},
+        "optional_clarification": "¿Hay hijos menores?",
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    user_output = result["output_modes"]["user"]
+    professional_output = result["output_modes"]["professional"]
+
+    assert user_output["required_documents"] == ["DNI y acta de matrimonio."]
+    assert user_output["local_practice_notes"]
+    assert professional_output["professional_frame"]["checklist"] == ["Competencia", "Propuesta reguladora"]
+
+
 def test_professional_mode_conserves_detail():
     result = output_mode_service.build_dual_output(_refined_response())
     professional = result["output_modes"]["professional"]

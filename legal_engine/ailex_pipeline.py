@@ -16,6 +16,7 @@ from app.services.beta_observability_helpers import (
     extract_selected_model_fields,
 )
 from app.services.beta_observability_service import update_beta_observability_context
+from app.services import core_legal_response_service
 from app.services import output_refinement_service
 from app.services import output_mode_service
 from legal_engine import (
@@ -93,6 +94,7 @@ class PipelineResult:
     output_modes: Dict[str, Any] = field(default_factory=dict)
     conversational: Dict[str, Any] = field(default_factory=dict)
     conversational_response: Dict[str, Any] = field(default_factory=dict)
+    core_legal_response: Dict[str, Any] = field(default_factory=dict)
     generated_document: Optional[str] = None
     quick_start: Optional[str] = None
 
@@ -693,6 +695,7 @@ class AilexPipeline:
             "confidence": confidence,
         }
         response_payload = output_refinement_service.refine(response_payload)
+        response_payload = core_legal_response_service.attach_core_legal_response(response_payload)
         response_payload = output_mode_service.build_dual_output(response_payload)
 
         return PipelineResult(
@@ -728,6 +731,7 @@ class AilexPipeline:
             output_modes=self._normalize_obj(response_payload.get("output_modes")),
             conversational=self._normalize_obj(response_payload.get("conversational")),
             conversational_response=self._normalize_obj(response_payload.get("conversational_response")),
+            core_legal_response=self._normalize_obj(response_payload.get("core_legal_response")),
             generated_document=response_payload.get("generated_document"),
             quick_start=response_payload.get("quick_start"),
             warnings=list(response_payload.get("warnings") or []),

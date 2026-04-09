@@ -707,6 +707,31 @@ def test_resolve_followup_question_prefers_conversational_question_over_missing_
     assert question == "¿Tienen hijos en comun?"
 
 
+def test_build_response_text_prioritizes_core_legal_response_over_guided_only():
+    processor = ResponsePostprocessor()
+
+    text = processor._build_response_text(  # noqa: SLF001
+        {
+            "core_legal_response": {
+                "direct_answer": "El divorcio puede iniciarse aunque no haya acuerdo.",
+                "action_steps": ["Preparar presentacion inicial.", "Ordenar propuesta reguladora."],
+                "required_documents": ["DNI y acta de matrimonio."],
+                "local_practice_notes": ["En Jujuy conviene definir desde el inicio la modalidad de presentacion."],
+                "optional_clarification": "¿Hay hijos menores?",
+            },
+            "conversational": {
+                "should_ask_first": True,
+                "guided_response": "Necesito confirmar un dato antes de orientarte.",
+            },
+        }
+    )
+
+    assert text.startswith("El divorcio puede iniciarse aunque no haya acuerdo.")
+    assert "Que podes hacer ahora:" in text
+    assert "Si queres afinar mejor la orientacion:" in text
+    assert "Necesito confirmar un dato antes de orientarte." not in text
+
+
 def test_attach_case_followup_veta_followup_legacy_si_adaptive_lo_suprime(monkeypatch):
     processor = ResponsePostprocessor()
     api_payload = {

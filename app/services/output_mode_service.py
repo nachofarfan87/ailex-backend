@@ -519,6 +519,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
     case_domain = _clean_text(response.get("case_domain"))
     case_strategy = _as_dict(response.get("case_strategy"))
     case_profile = _as_dict(response.get("case_profile"))
+    core_legal_response = _as_dict(response.get("core_legal_response"))
     quick_start = _clean_text(response.get("quick_start"))
     summary_source = _first_nonempty_text(
         _as_dict(response.get("reasoning")).get("short_answer"),
@@ -564,10 +565,12 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         quick_start_value = quick_start
     elif primary_action:
         quick_start_value = f"Primer paso recomendado: {primary_action}"
-    summary = _to_user_text(summary_source) or _default_user_summary(
+    summary = _to_user_text(core_legal_response.get("direct_answer")) or _to_user_text(summary_source) or _default_user_summary(
         case_domain, quick_start, known_facts
     )
-    what_this_means = _to_user_text(what_this_means_source) or summary
+    what_this_means = _to_user_text(core_legal_response.get("direct_answer")) or _to_user_text(what_this_means_source) or summary
+    required_documents = _dedupe_strs(_to_user_list(core_legal_response.get("required_documents") or []))[:4]
+    local_practice_notes = _dedupe_strs(_to_user_list(core_legal_response.get("local_practice_notes") or []))[:3]
 
     # D.1/D.2 — Contextual opening based on confirmed facts.
     # Prepended to summary so the first thing the user reads reflects their case
@@ -592,6 +595,10 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
                 *(_to_user_list(conversational.get("missing_facts") or [])),
                 decisive_question,
             ])[:2],
+            "required_documents": required_documents,
+            "local_practice_notes": local_practice_notes,
+            "optional_clarification": decisive_question or _clean_text(core_legal_response.get("optional_clarification")),
+            "guided_followup": guided_response,
             "confidence_explained": "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
         }
 
@@ -603,6 +610,9 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         "next_steps": supporting_actions[:5] if supporting_actions else _dedupe_strs(next_steps)[:5],
         "key_risks": _dedupe_strs(key_risks)[:5],
         "missing_information": _dedupe_strs(missing_information)[:5],
+        "required_documents": required_documents,
+        "local_practice_notes": local_practice_notes,
+        "optional_clarification": _clean_text(core_legal_response.get("optional_clarification")),
         "confidence_explained": explain_confidence(response, mode="user"),
     }
 
@@ -611,11 +621,13 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
     case_domain = _clean_text(response.get("case_domain"))
     case_strategy = _as_dict(response.get("case_strategy"))
     case_profile = _as_dict(response.get("case_profile"))
+    core_legal_response = _as_dict(response.get("core_legal_response"))
+    professional_frame = _as_dict(core_legal_response.get("professional_frame"))
     normative_focus = _build_normative_focus(_as_dict(response.get("normative_reasoning")))
     summary = _professional_summary(response)
     return {
         "title": _professional_title(case_domain),
-        "summary": summary,
+        "summary": _clean_text(professional_frame.get("strategy")) or summary,
         "strategic_narrative": _clean_text(case_strategy.get("strategic_narrative")),
         "conflict_summary": _dedupe_strs(_as_str_list(case_strategy.get("conflict_summary"))),
         "recommended_actions": _dedupe_strs(_as_str_list(case_strategy.get("recommended_actions"))),
@@ -624,6 +636,7 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
             *_as_str_list(case_strategy.get("procedural_focus")),
             *_as_str_list(case_profile.get("strategic_focus")),
         ]),
+        "professional_frame": professional_frame,
         "critical_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("critical_missing_information"))),
         "ordinary_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("ordinary_missing_information"))),
         "normative_focus": normative_focus,

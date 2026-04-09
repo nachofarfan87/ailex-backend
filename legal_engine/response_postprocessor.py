@@ -82,7 +82,10 @@ class ResponsePostprocessor:
     ) -> FinalOutput:
         raw_response_text = self._build_response_text(pipeline_payload)
         response_text = self._sanitize_text(raw_response_text)
-        if not bool(dict(pipeline_payload.get("conversational") or {}).get("should_ask_first")):
+        if (
+            not bool(dict(pipeline_payload.get("conversational") or {}).get("should_ask_first"))
+            and not bool(dict(pipeline_payload.get("core_legal_response") or {}).get("action_steps"))
+        ):
             response_text = self._prepend_quick_start(
                 response_text,
                 pipeline_payload.get("quick_start"),
@@ -2165,6 +2168,11 @@ class ResponsePostprocessor:
         return payload
 
     def _build_response_text(self, payload: dict[str, Any]) -> str:
+        core_legal_response = dict(payload.get("core_legal_response") or {})
+        core_response_text = self._render_core_legal_response(core_legal_response)
+        if core_response_text:
+            return core_response_text
+
         conversational = payload.get("conversational") or {}
         if conversational.get("should_ask_first"):
             guided_response = str(conversational.get("guided_response") or "").strip()
@@ -2184,6 +2192,28 @@ class ResponsePostprocessor:
 
         parts = [part for part in (reactive_transition, short_answer, applied_analysis, strategic_narrative) if part]
         return "\n\n".join(self._dedupe_lines(parts))
+
+    def _render_core_legal_response(self, core: dict[str, Any]) -> str:
+        if not core:
+            return ""
+        direct_answer = str(core.get("direct_answer") or "").strip()
+        action_steps = [str(item).strip() for item in list(core.get("action_steps") or []) if str(item).strip()]
+        required_documents = [str(item).strip() for item in list(core.get("required_documents") or []) if str(item).strip()]
+        local_practice_notes = [str(item).strip() for item in list(core.get("local_practice_notes") or []) if str(item).strip()]
+        optional_clarification = str(core.get("optional_clarification") or "").strip()
+
+        sections: list[str] = []
+        if direct_answer:
+            sections.append(direct_answer)
+        if action_steps:
+            sections.append("Que podes hacer ahora:\n" + "\n".join(f"- {item}" for item in action_steps[:3]))
+        if required_documents:
+            sections.append("Que conviene reunir:\n" + "\n".join(f"- {item}" for item in required_documents[:4]))
+        if local_practice_notes:
+            sections.append("Practica local orientativa:\n" + "\n".join(f"- {item}" for item in local_practice_notes[:3]))
+        if optional_clarification:
+            sections.append(f"Si queres afinar mejor la orientacion: {optional_clarification}")
+        return "\n\n".join(section for section in sections if section.strip()).strip()
 
     def _prepend_quick_start(
         self,
