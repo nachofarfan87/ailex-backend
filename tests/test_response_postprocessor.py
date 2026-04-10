@@ -135,6 +135,118 @@ def test_postprocessor_builds_response_text_internally():
     assert "Narrativa prudente." in final_output.response_text
 
 
+def test_inject_legal_reasoning_does_not_prepend_blocks_when_core_exists():
+    processor = ResponsePostprocessor()
+
+    response_text = processor._inject_legal_reasoning(  # noqa: SLF001
+        response_text="Orientacion util base.",
+        pipeline_payload={
+            "case_profile": {"case_domain": "divorcio"},
+        },
+        api_payload={
+            "core_legal_response": {
+                "direct_answer": "El divorcio puede iniciarse.",
+                "action_steps": ["Reunir DNI."],
+            }
+        },
+    )
+
+    assert response_text == "Orientacion util base."
+
+
+def test_inject_case_progress_narrative_does_not_prepend_blocks_when_core_exists():
+    processor = ResponsePostprocessor()
+
+    response_text = processor._inject_case_progress_narrative(  # noqa: SLF001
+        response_text="Orientacion util base.",
+        api_payload={
+            "core_legal_response": {
+                "direct_answer": "El divorcio puede iniciarse.",
+                "action_steps": ["Reunir DNI."],
+            },
+            "case_progress_narrative": {
+                "applies": True,
+                "opening": "Con lo que ya sabemos hasta ahora...",
+                "known_block": "Hay hijos involucrados.",
+                "missing_block": "Falta precisar domicilio.",
+            },
+        },
+    )
+
+    assert response_text == "Orientacion util base."
+
+
+def test_build_response_text_prefers_user_output_mode_over_guided_response():
+    processor = ResponsePostprocessor()
+
+    response_text = processor._build_response_text(  # noqa: SLF001
+        {
+            "output_modes": {
+                "user": {
+                    "summary": "Podes iniciar el divorcio con la documentacion basica.",
+                    "next_steps": ["Reunir DNI y acta de matrimonio."],
+                    "required_documents": ["DNI.", "Acta de matrimonio."],
+                    "optional_clarification": "Hay hijos menores?",
+                }
+            },
+            "conversational": {
+                "should_ask_first": True,
+                "guided_response": "Necesito confirmar un punto antes de seguir.",
+            },
+        }
+    )
+
+    assert "Podes iniciar el divorcio" in response_text
+    assert "Necesito confirmar un punto" not in response_text
+
+
+def test_inject_legal_reasoning_does_not_prepend_blocks_when_user_output_is_actionable():
+    processor = ResponsePostprocessor()
+
+    response_text = processor._inject_legal_reasoning(  # noqa: SLF001
+        response_text="Orientacion util base.",
+        pipeline_payload={
+            "case_profile": {"case_domain": "divorcio"},
+        },
+        api_payload={
+            "output_mode": "orientacion_inicial",
+            "output_modes": {
+                "user": {
+                    "summary": "Podes iniciar el divorcio.",
+                    "next_steps": ["Reunir DNI."],
+                }
+            },
+        },
+    )
+
+    assert response_text == "Orientacion util base."
+
+
+def test_inject_case_progress_narrative_does_not_prepend_blocks_when_user_output_is_actionable():
+    processor = ResponsePostprocessor()
+
+    response_text = processor._inject_case_progress_narrative(  # noqa: SLF001
+        response_text="Orientacion util base.",
+        api_payload={
+            "output_mode": "orientacion_inicial",
+            "output_modes": {
+                "user": {
+                    "summary": "Podes iniciar el divorcio.",
+                    "next_steps": ["Reunir DNI."],
+                }
+            },
+            "case_progress_narrative": {
+                "applies": True,
+                "opening": "Con lo que ya sabemos hasta ahora...",
+                "known_block": "Hay hijos involucrados.",
+                "missing_block": "Falta precisar domicilio.",
+            },
+        },
+    )
+
+    assert response_text == "Orientacion util base."
+
+
 def test_postprocessor_exposes_documents_considered_in_canonical_output():
     processor = ResponsePostprocessor()
     final_output = processor.postprocess(

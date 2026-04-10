@@ -237,3 +237,132 @@ def test_simple_divorce_keeps_general_or_procedure_without_breaking_output():
     assert result["focus_trace"]["primary_focus"] in ("general", "procedure")
     assert result["direct_answer"]
     assert result["action_steps"]
+
+
+def test_divorce_without_details_still_returns_minimum_useful_documents_and_steps():
+    result = build_core_legal_response({
+        "case_domain": "divorcio",
+        "jurisdiction": "jujuy",
+        "query": "Quiero divorciarme.",
+    })
+
+    assert any("dni" in item.lower() for item in result["required_documents"])
+    assert any("matrimonio" in item.lower() or "libreta" in item.lower() for item in result["required_documents"])
+    assert any("presentacion inicial" in item.lower() or "propuesta reguladora" in item.lower() for item in result["action_steps"])
+    assert result["optional_clarification"] is not None
+
+
+def test_cuidado_personal_returns_useful_base_even_with_limited_information():
+    result = build_core_legal_response({
+        "case_domain": "cuidado_personal",
+        "jurisdiction": "jujuy",
+        "query": "Quiero resolver el cuidado de mi hijo.",
+    })
+
+    assert "cuidado" in result["direct_answer"].lower()
+    assert any("centro de vida" in item.lower() or "partida" in item.lower() for item in result["required_documents"])
+    assert any("convive" in item.lower() or "presentacion inicial" in item.lower() for item in result["action_steps"])
+
+
+def test_divorce_in_jujuy_includes_local_family_forum_and_filing_shape():
+    result = build_core_legal_response({
+        "case_domain": "divorcio",
+        "jurisdiction": "jujuy",
+        "query": "Quiero divorciarme y solo yo quiero hacerlo.",
+        "conversational": {
+            "known_facts": {
+                "hay_acuerdo": False,
+            },
+        },
+    })
+
+    joined_notes = " ".join(result["local_practice_notes"]).lower()
+    joined_steps = " ".join(result["action_steps"]).lower()
+    joined_answer = result["direct_answer"].lower()
+
+    assert "fuero de familia" in joined_notes
+    assert "propuesta reguladora" in joined_steps or "peticion de divorcio" in joined_steps
+    assert "fuero de familia" in joined_answer or "presentacion" in joined_answer
+
+
+def test_alimentos_in_jujuy_mentions_family_forum_and_provisional_support():
+    result = build_core_legal_response({
+        "case_domain": "alimentos",
+        "jurisdiction": "jujuy",
+        "query": "Quiero reclamar alimentos para mi hijo porque no me pasa plata.",
+    })
+
+    joined_notes = " ".join(result["local_practice_notes"]).lower()
+    joined_steps = " ".join(result["action_steps"]).lower()
+
+    assert "fuero de familia" in joined_notes
+    assert "cuota provisoria" in joined_notes or "cuota provisoria" in joined_steps
+    assert any("gastos" in item.lower() for item in result["required_documents"])
+
+
+def test_sucesion_includes_civil_orientation_and_last_domicile():
+    result = build_core_legal_response({
+        "case_domain": "sucesion",
+        "jurisdiction": "jujuy",
+        "query": "Quiero iniciar la sucesion de mi papa.",
+    })
+
+    joined_notes = " ".join(result["local_practice_notes"]).lower()
+    joined_answer = result["direct_answer"].lower()
+    joined_steps = " ".join(result["action_steps"]).lower()
+
+    assert "sede civil" in joined_notes or "sede civil" in joined_answer
+    assert "ultimo domicilio" in joined_notes or "ultimo domicilio" in joined_steps
+
+
+def test_civil_cobro_opens_useful_collection_guidance():
+    result = build_core_legal_response({
+        "case_domain": "civil",
+        "jurisdiction": "jujuy",
+        "query": "Me deben plata por un contrato y no me pagan.",
+    })
+
+    assert result["focus_trace"]["practical_domain"] == "civil_cobro"
+    assert "deuda" in result["direct_answer"].lower() or "incumplimiento" in result["direct_answer"].lower()
+    assert any("contrato" in item.lower() or "deuda" in item.lower() for item in result["required_documents"])
+    assert result["professional_frame"]["practical_domain_label"] == "Cobro e incumplimiento civil"
+
+
+def test_civil_danos_opens_damage_guidance():
+    result = build_core_legal_response({
+        "case_domain": "civil",
+        "jurisdiction": "jujuy",
+        "query": "Tuve un choque y quiero reclamar los daños del auto y las lesiones.",
+    })
+
+    assert result["focus_trace"]["practical_domain"] == "civil_danos"
+    assert "dano" in result["direct_answer"].lower() or "accidente" in result["direct_answer"].lower()
+    assert any("denuncia" in item.lower() or "certificados medicos" in item.lower() or "fotos" in item.lower() for item in result["required_documents"])
+    joined_notes = " ".join(result["local_practice_notes"]).lower()
+    assert "jujuy" in joined_notes or "danos y perjuicios" in joined_notes or "prueba del hecho" in joined_notes
+
+
+def test_civil_inmueble_opens_property_conflict_guidance():
+    result = build_core_legal_response({
+        "case_domain": "civil",
+        "jurisdiction": "jujuy",
+        "query": "Tengo un problema con un alquiler y quiero reclamar por el inmueble.",
+    })
+
+    assert result["focus_trace"]["practical_domain"] == "civil_inmueble"
+    assert "inmueble" in result["direct_answer"].lower() or "alquiler" in result["direct_answer"].lower()
+    assert any("contrato" in item.lower() or "escritura" in item.lower() for item in result["required_documents"])
+    assert result["professional_frame"]["practical_domain_label"] == "Conflicto civil sobre inmueble"
+
+
+def test_sucesion_branch_still_activates_even_if_case_domain_is_civil():
+    result = build_core_legal_response({
+        "case_domain": "civil",
+        "action_slug": "sucesion_ab_intestato",
+        "jurisdiction": "jujuy",
+        "query": "Quiero iniciar la sucesion de mi madre.",
+    })
+
+    assert result["focus_trace"]["practical_domain"] == "sucesion"
+    assert "sucesion" in result["direct_answer"].lower()
+    assert any("defuncion" in item.lower() for item in result["required_documents"])

@@ -93,6 +93,92 @@ def test_professional_mode_conserves_detail():
     assert professional["normative_focus"] == ["CCyC art. 438", "CCyC art. 439"]
 
 
+def test_professional_mode_exposes_structured_professional_pack_from_core():
+    payload = _refined_response()
+    payload["core_legal_response"] = {
+        "direct_answer": "El divorcio puede iniciarse con base suficiente.",
+        "action_steps": ["Preparar presentacion inicial de divorcio."],
+        "required_documents": ["DNI.", "Acta de matrimonio."],
+        "local_practice_notes": ["En Jujuy conviene entrar con propuesta reguladora."],
+        "professional_frame": {
+            "strategy": "Entrar por divorcio unilateral con foco en homologacion y efectos.",
+            "checklist": ["Competencia", "Propuesta reguladora", "Acta de matrimonio"],
+            "drafting_points": ["Ordenar hechos", "Cubrir hijos y alimentos"],
+            "forum_hint": "Fuero de familia de Jujuy.",
+            "filing_shape": "Peticion de divorcio con propuesta reguladora.",
+            "next_move": "Definir competencia y propuesta reguladora.",
+            "model_hint": "Modelo base de divorcio unilateral",
+            "primary_focus": "children",
+            "secondary_focuses": ["procedure"],
+        },
+        "optional_clarification": "Hay hijos menores?",
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    professional = result["output_modes"]["professional"]
+
+    assert professional["summary"].startswith("Entrar por divorcio unilateral")
+    assert professional["checklist"] == ["Competencia", "Propuesta reguladora", "Acta de matrimonio"]
+    assert professional["drafting_points"] == ["Ordenar hechos", "Cubrir hijos y alimentos"]
+    assert professional["forum_hint"] == "Fuero de familia de Jujuy."
+    assert professional["filing_shape"] == "Peticion de divorcio con propuesta reguladora."
+    assert professional["next_move"] == "Definir competencia y propuesta reguladora."
+    assert professional["model_hint"] == "Modelo base de divorcio unilateral"
+    assert professional["primary_focus"] == "children"
+    assert professional["secondary_focuses"] == ["procedure"]
+
+
+def test_civil_titles_use_practical_domain_label_from_core():
+    payload = {
+        "case_domain": "civil",
+        "reasoning": {
+            "short_answer": "Hay base para orientar un reclamo de cobro.",
+        },
+        "core_legal_response": {
+            "direct_answer": "Si te deben dinero, conviene ordenar el origen de la deuda y el incumplimiento.",
+            "action_steps": ["Reunir contrato y comprobantes de pago o incumplimiento."],
+            "required_documents": ["Contrato.", "Comprobantes de pago."],
+            "local_practice_notes": ["En Jujuy suele intervenir la sede civil."],
+            "professional_frame": {
+                "strategy": "Entrar por cobro civil con base documental suficiente.",
+                "practical_domain_label": "Cobro e incumplimiento civil",
+            },
+            "optional_clarification": "Hay una intimacion previa?",
+        },
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert result["output_modes"]["user"]["title"] == "Orientacion inicial para cobro e incumplimiento civil"
+    assert result["output_modes"]["professional"]["title"] == "Encuadre estrategico de cobro e incumplimiento civil"
+    assert result["output_modes"]["user"]["practical_domain_label"] == "Cobro e incumplimiento civil"
+
+
+def test_progression_titles_keep_practical_domain_label_when_case_domain_is_generic():
+    payload = {
+        "case_domain": "civil",
+        "core_legal_response": {
+            "direct_answer": "Hay base para orientar danos y perjuicios.",
+            "action_steps": ["Ordenar denuncia, fotos y certificados medicos."],
+            "required_documents": ["Denuncia.", "Fotos."],
+            "local_practice_notes": ["En Jujuy suele intervenir la sede civil."],
+            "professional_frame": {
+                "strategy": "Entrar por danos con hecho y prueba minima diferenciados.",
+                "practical_domain_label": "Danos y perjuicios",
+            },
+        },
+    }
+
+    built = output_mode_service.build_dual_output(payload)
+    progressed = output_mode_service.apply_output_mode_progression(
+        built,
+        {"output_mode": "ejecucion"},
+    )
+
+    assert progressed["output_modes"]["user"]["title"] == "Que hacer ahora en danos y perjuicios"
+    assert progressed["output_modes"]["professional"]["title"] == "Salida ejecutiva priorizada"
+
+
 def test_confidence_explained_changes_by_mode():
     result = output_mode_service.build_dual_output(_refined_response())
 
@@ -144,6 +230,20 @@ def test_user_output_usa_opening_especifico_con_facts_suficientes():
     assert "podes avanzar con el divorcio" in summary.lower()
     assert "hijos" in summary.lower()
     assert "tengo suficiente para darte una orientación concreta" in summary.lower()
+
+
+def test_user_mode_prefers_plain_reasoning_before_technical_strategic_narrative():
+    payload = _refined_response()
+    payload["reasoning"]["short_answer"] = "Podes iniciar el divorcio y ordenar la presentacion basica."
+    payload["response_text"] = "Respuesta simple para usuario."
+    payload["case_strategy"]["strategic_narrative"] = (
+        "La estrategia debe resolver competencia, encuadre procesal y consistencia del convenio regulador."
+    )
+
+    result = output_mode_service.build_dual_output(payload)
+    summary = result["output_modes"]["user"]["summary"]
+
+    assert summary == "Podes iniciar el divorcio y ordenar la presentacion basica."
 
 
 def test_user_output_sin_facts_mantiene_fallback():
@@ -1400,6 +1500,83 @@ def test_question_first_keeps_core_focus_in_summary_and_steps():
     assert "alimentos" in user_output["what_this_means"].lower()
     assert "cuidado personal" in " ".join(user_output["next_steps"]).lower()
     assert "ya tengo la base" not in str(user_output.get("guided_followup") or "").lower()
+
+
+def test_equivalent_question_does_not_reopen_same_slot_after_precise_answer():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["query"] = "Jujuy"
+    payload["metadata"] = {
+        "clarification_context": {
+            "base_query": "Quiero divorciarme",
+            "case_domain": "divorcio",
+            "last_question": "En que ciudad o domicilio principal se desarrolla el caso?",
+            "asked_questions": ["En que ciudad o domicilio principal se desarrolla el caso?"],
+            "known_facts": {
+                "domicilio_relevante": "Jujuy",
+                "jurisdiccion_relevante": "Jujuy",
+            },
+            "clarified_fields": ["domicilio_relevante", "jurisdiccion_relevante"],
+            "answer_status": "precise",
+            "canonical_slot": "domicilio_relevante",
+        }
+    }
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "Que juzgado corresponde y en que ciudad deberia tramitarse?",
+                "purpose": "Precisar competencia judicial.",
+                "priority": "alta",
+                "category": "competencia",
+            }
+        ]
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Precisar que juzgado corresponde judicial y domicilios relevantes.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert "ciudad" not in (result["conversational"]["question"] or "").lower()
+    assert "domicilio" not in (result["conversational"]["question"] or "").lower()
+
+
+def test_question_first_with_core_keeps_user_title_and_shows_action_before_clarification():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["quick_start"] = "Primer paso recomendado: Redactar propuesta inicial."
+    payload["conversational"] = {
+        "should_ask_first": True,
+        "question": "En que ciudad se desarrolla el caso?",
+        "guided_response": "Necesito confirmar un punto antes de seguir.",
+        "missing_facts": ["Precisar domicilio relevante."],
+        "next_step": "Precisar domicilio relevante.",
+    }
+    payload["core_legal_response"] = {
+        "direct_answer": (
+            "El divorcio puede iniciarse aunque falten algunos detalles.\n"
+            "Con lo disponible ya conviene reunir la documentacion basica y ordenar la presentacion.\n"
+            "El domicilio solo ajusta mejor competencia y juzgado."
+        ),
+        "action_steps": [
+            "Reunir DNI y acta o libreta de matrimonio.",
+            "Preparar la presentacion inicial del divorcio.",
+        ],
+        "required_documents": ["DNI.", "Acta o libreta de matrimonio."],
+        "local_practice_notes": ["En Jujuy conviene ubicar competencia con el domicilio relevante."],
+        "professional_frame": {},
+        "optional_clarification": "En que ciudad o domicilio principal se desarrolla el caso?",
+    }
+
+    result = output_mode_service.build_dual_output(payload)
+    user_output = result["output_modes"]["user"]
+
+    assert user_output["title"] == "Que hacer primero en tu divorcio"
+    assert user_output["quick_start"].startswith("Primer paso recomendado:")
+    assert "reunir dni" in user_output["quick_start"].lower()
+    assert "documentacion basica" in user_output["summary"].lower()
+    assert user_output["optional_clarification"].lower().startswith("en que ciudad")
+    assert "necesito confirmar un punto" not in (user_output.get("guided_followup") or "").lower()
 
 
 def test_divorce_with_children_prioritizes_parental_action_over_housing():

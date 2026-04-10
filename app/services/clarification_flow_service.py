@@ -56,6 +56,22 @@ _STRUCTURAL_FACT_KEYS = (
     "cuota_alimentaria_porcentaje",
     "regimen_comunicacional",
     "jurisdiccion_relevante",
+    "domicilio_relevante",
+)
+
+_JURISDICTION_HINTS = (
+    "jujuy",
+    "salta",
+    "tucuman",
+    "tucumán",
+    "catamarca",
+    "cordoba",
+    "cordoba capital",
+    "córdoba",
+    "buenos aires",
+    "san salvador de jujuy",
+    "palpala",
+    "palpalá",
 )
 
 
@@ -254,6 +270,12 @@ def _extract_clarification_answer(
             extracted_facts["urgencia"] = urgency
             clarified_fields.append("urgencia")
 
+    if _question_mentions_domicile(normalized_question):
+        domicile_facts = _extract_domicile_facts(answer)
+        if domicile_facts:
+            extracted_facts.update(domicile_facts)
+            clarified_fields.extend(domicile_facts.keys())
+
     if case_domain == "alimentos" or "alimentos" in normalized_question:
         if re.search(r"\bsoy (el )?demandad[oa]\b|\bme demandan\b|\bme reclam[ae]n? alimentos\b", normalized_answer):
             extracted_facts["rol_procesal"] = "demandado"
@@ -390,11 +412,50 @@ def _question_mentions_agreement(question: str) -> bool:
     return "acuerdo" in question and "unilateral" not in question
 
 
+def _question_mentions_domicile(question: str) -> bool:
+    return any(
+        token in question
+        for token in (
+            "domicilio",
+            "ciudad",
+            "jurisdiccion",
+            "jurisdicción",
+            "juzgado",
+            "competencia",
+            "donde se desarrolla",
+            "dónde se desarrolla",
+        )
+    )
+
+
 def _build_precision_prompt(last_question: str) -> str:
     question = _clean_text(last_question)
     if question:
         return f"Necesito que me lo aclares mejor. Responde de forma concreta a esta pregunta: {question}"
     return "Necesito que me lo aclares mejor con una respuesta mas concreta."
+
+
+def _extract_domicile_facts(raw_answer: str) -> dict[str, Any]:
+    clean_answer = _clean_text(raw_answer)
+    normalized_answer = _normalize_text(clean_answer)
+    if not clean_answer or normalized_answer in _AMBIGUOUS_SHORT_ANSWERS:
+        return {}
+    if re.search(r"\bno se\b|\bno lo se\b|\bdesconozco\b|\bno tengo ese dato\b", normalized_answer):
+        return {}
+
+    extracted: dict[str, Any] = {}
+    if len(clean_answer.split()) <= 8:
+        extracted["domicilio_relevante"] = clean_answer
+
+    for hint in _JURISDICTION_HINTS:
+        if hint in normalized_answer:
+            extracted["jurisdiccion_relevante"] = hint.title() if hint != "san salvador de jujuy" else "San Salvador de Jujuy"
+            break
+
+    if not extracted and re.fullmatch(r"[a-záéíóúñ\s]{3,50}", normalized_answer):
+        extracted["domicilio_relevante"] = clean_answer
+
+    return extracted
 
 
 def _extract_yes_no(text: str) -> bool | None:

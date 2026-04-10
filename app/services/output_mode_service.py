@@ -5,6 +5,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from app.services.conversation_integrity_service import canonicalize_slot
 from app.services.conversational import build_conversation_memory, build_conversational_response
 from app.services.conversational.conversational_quality import (
     apply_conversational_style,
@@ -520,15 +521,18 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
     case_strategy = _as_dict(response.get("case_strategy"))
     case_profile = _as_dict(response.get("case_profile"))
     core_legal_response = _as_dict(response.get("core_legal_response"))
+    professional_frame = _as_dict(core_legal_response.get("professional_frame"))
+    practical_domain_label = _clean_text(professional_frame.get("practical_domain_label"))
     quick_start = _clean_text(response.get("quick_start"))
     summary_source = _first_nonempty_text(
         _as_dict(response.get("reasoning")).get("short_answer"),
-        case_strategy.get("strategic_narrative"),
         response.get("response_text"),
+        case_strategy.get("strategic_narrative"),
     )
     what_this_means_source = _first_nonempty_text(
-        case_strategy.get("strategic_narrative"),
         summary_source,
+        response.get("response_text"),
+        case_strategy.get("strategic_narrative"),
         quick_start,
     )
     core_action_steps = _dedupe_strs(_to_user_list(core_legal_response.get("action_steps") or []))[:5]
@@ -555,7 +559,9 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         supporting_actions = [item for item in next_steps if _normalize_text(item) != _normalize_text(primary_action)]
     raw_quick_start_body = _strip_known_prefix(quick_start, "Primer paso recomendado:")
     quick_start_value = quick_start
-    if (
+    if core_action_steps:
+        quick_start_value = f"Primer paso recomendado: {core_action_steps[0]}"
+    elif (
         quick_start
         and raw_quick_start_body
         and not _looks_like_question_prompt(raw_quick_start_body)
@@ -590,6 +596,7 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
         guided_response = _clean_text(conversational.get("guided_response"))
         has_core_guidance = bool(_to_user_text(core_legal_response.get("direct_answer")))
         conversational_next_step = _clean_text(conversational.get("next_step"))
+        optional_clarification = _clean_text(core_legal_response.get("optional_clarification")) or decisive_question
         question_first_actions = (
             core_action_steps
             if core_action_steps
@@ -609,9 +616,9 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
             ):
                 clarification_hint = ""
         return {
-            "title": _question_first_title(case_domain),
+            "title": _user_title(case_domain, quick_start, practical_domain_label=practical_domain_label) if has_core_guidance else _question_first_title(practical_domain_label or case_domain),
             "summary": summary if has_core_guidance else (guided_response or summary),
-            "quick_start": "",
+            "quick_start": f"Primer paso recomendado: {core_action_steps[0]}" if has_core_guidance and core_action_steps else (f"Primer paso recomendado: {question_first_actions[0]}" if has_core_guidance and question_first_actions else ""),
             "what_this_means": what_this_means if has_core_guidance else (guided_response or what_this_means),
             "next_steps": question_first_actions,
             "key_risks": [],
@@ -621,22 +628,24 @@ def _build_user_output(response: dict[str, Any], conversational: dict[str, Any])
             ])[:2],
             "required_documents": required_documents,
             "local_practice_notes": local_practice_notes,
-            "optional_clarification": decisive_question or _clean_text(core_legal_response.get("optional_clarification")),
+            "optional_clarification": optional_clarification,
+            "practical_domain_label": practical_domain_label,
             "guided_followup": clarification_hint,
-            "confidence_explained": "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
+            "confidence_explained": explain_confidence(response, mode="user") if has_core_guidance else "Con ese dato se puede orientar la estrategia con mucha mas precision y evitar una respuesta sobredesarrollada demasiado pronto.",
         }
 
     return {
-        "title": _user_title(case_domain, quick_start),
+        "title": _user_title(case_domain, quick_start, practical_domain_label=practical_domain_label),
         "summary": summary,
         "quick_start": quick_start_value,
         "what_this_means": what_this_means,
-        "next_steps": _dedupe_strs(next_steps)[:5] if core_action_steps else (supporting_actions[:5] if supporting_actions else _dedupe_strs(next_steps)[:5]),
+        "next_steps": _dedupe_strs(next_steps)[:5] if core_action_steps else (_dedupe_strs(([primary_action] if primary_action else []) + supporting_actions)[:5] if (primary_action or supporting_actions) else _dedupe_strs(next_steps)[:5]),
         "key_risks": _dedupe_strs(key_risks)[:5],
         "missing_information": _dedupe_strs(missing_information)[:5],
         "required_documents": required_documents,
         "local_practice_notes": local_practice_notes,
         "optional_clarification": _clean_text(core_legal_response.get("optional_clarification")),
+        "practical_domain_label": practical_domain_label,
         "confidence_explained": explain_confidence(response, mode="user"),
     }
 
@@ -649,8 +658,29 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
     professional_frame = _as_dict(core_legal_response.get("professional_frame"))
     normative_focus = _build_normative_focus(_as_dict(response.get("normative_reasoning")))
     summary = _professional_summary(response)
+    checklist = _dedupe_strs(_as_str_list(
+        professional_frame.get("checklist")
+        or [
+            *_as_str_list(case_strategy.get("procedural_focus")),
+            *_as_str_list(case_strategy.get("recommended_actions")),
+        ]
+    ))[:6]
+    drafting_points = _dedupe_strs(_as_str_list(
+        professional_frame.get("drafting_points")
+        or [
+            *_as_str_list(case_profile.get("strategic_focus")),
+            *_as_str_list(case_strategy.get("conflict_summary")),
+        ]
+    ))[:5]
+    forum_hint = _clean_text(professional_frame.get("forum_hint"))
+    filing_shape = _clean_text(professional_frame.get("filing_shape"))
+    next_move = _clean_text(professional_frame.get("next_move")) or (checklist[0] if checklist else "")
+    model_hint = _clean_text(professional_frame.get("model_hint"))
+    primary_focus = _clean_text(professional_frame.get("primary_focus"))
+    secondary_focuses = _dedupe_strs(_as_str_list(professional_frame.get("secondary_focuses")))
+    practical_domain_label = _clean_text(professional_frame.get("practical_domain_label"))
     return {
-        "title": _professional_title(case_domain),
+        "title": _professional_title(case_domain, practical_domain_label=practical_domain_label),
         "summary": _clean_text(professional_frame.get("strategy")) or summary,
         "strategic_narrative": _clean_text(case_strategy.get("strategic_narrative")),
         "conflict_summary": _dedupe_strs(_as_str_list(case_strategy.get("conflict_summary"))),
@@ -660,6 +690,15 @@ def _build_professional_output(response: dict[str, Any]) -> dict[str, Any]:
             *_as_str_list(case_strategy.get("procedural_focus")),
             *_as_str_list(case_profile.get("strategic_focus")),
         ]),
+        "checklist": checklist,
+        "drafting_points": drafting_points,
+        "forum_hint": forum_hint,
+        "filing_shape": filing_shape,
+        "next_move": next_move,
+        "model_hint": model_hint,
+        "primary_focus": primary_focus,
+        "secondary_focuses": secondary_focuses,
+        "practical_domain_label": practical_domain_label,
         "professional_frame": professional_frame,
         "critical_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("critical_missing_information"))),
         "ordinary_missing_information": _dedupe_strs(_as_str_list(case_strategy.get("ordinary_missing_information"))),
@@ -1091,6 +1130,9 @@ def _question_is_stale_after_clarification(
     normalized_question = _normalize_text(question_text)
     normalized_last_question = _normalize_text(clarification_context.get("last_question") or "")
     answer_status = _clean_text(clarification_context.get("answer_status")).casefold()
+    clarification_slot = _clean_text(clarification_context.get("canonical_slot"))
+    selected_slot = canonicalize_slot(question=question_text) or _infer_question_slot_key(question_text, question_candidates)
+    last_slot = canonicalize_slot(question=_clean_text(clarification_context.get("last_question") or "")) or clarification_slot
     clarified_fields = {
         _clean_text(item)
         for item in _as_str_list(clarification_context.get("clarified_fields"))
@@ -1099,6 +1141,10 @@ def _question_is_stale_after_clarification(
     inferred_field = _infer_question_slot_key(question_text, question_candidates)
 
     if answer_status == "precise" and normalized_last_question and normalized_question == normalized_last_question:
+        return True
+    if answer_status == "precise" and selected_slot and last_slot and selected_slot == last_slot:
+        return True
+    if selected_slot and clarification_slot and selected_slot == clarification_slot and answer_status in {"precise", "short_valid"}:
         return True
     if inferred_field and inferred_field in clarified_fields:
         return True
@@ -1424,6 +1470,14 @@ def _item_is_resolved(
     if any(term in normalized for term in ("bienes", "vivienda", "patrimonial")) and "hay_bienes" in known_facts:
         return True
 
+    if any(term in normalized for term in ("domicilio", "ciudad", "jurisdiccion", "jurisdicción", "juzgado", "competencia")) and (
+        _clean_text(known_facts.get("domicilio_relevante"))
+        or _clean_text(known_facts.get("jurisdiccion_relevante"))
+        or _clean_text(known_facts.get("provincia"))
+        or _clean_text(known_facts.get("jurisdiccion"))
+    ):
+        return True
+
     if "convivencia" in normalized and "cese_convivencia" in known_facts:
         return True
 
@@ -1645,25 +1699,37 @@ def _build_normative_focus(normative_reasoning: dict[str, Any]) -> list[str]:
     return _dedupe_strs(focus)[:5]
 
 
-def _user_title(case_domain: str, quick_start: str) -> str:
+def _display_domain_label(case_domain: str, practical_domain_label: str = "") -> str:
+    normalized_domain = case_domain.casefold()
+    normalized_label = practical_domain_label.casefold()
+    if practical_domain_label and normalized_domain in {"", "civil", "generic", "general"}:
+        return practical_domain_label
+    if practical_domain_label and normalized_label not in {"civil", "generic", "general"}:
+        return practical_domain_label
+    return _humanize_case_domain(case_domain)
+
+
+def _user_title(case_domain: str, quick_start: str, *, practical_domain_label: str = "") -> str:
     normalized = case_domain.casefold()
+    display_label = _display_domain_label(case_domain, practical_domain_label)
     if normalized == "divorcio":
         if quick_start:
             return "Que hacer primero en tu divorcio"
         return "Orientacion inicial para divorcio"
-    if case_domain:
-        return f"Orientacion inicial para {_humanize_case_domain(case_domain)}"
+    if display_label:
+        return f"Orientacion inicial para {display_label.lower()}"
     if quick_start:
         return "Que hacer primero"
     return "Orientacion inicial del caso"
 
 
-def _professional_title(case_domain: str) -> str:
+def _professional_title(case_domain: str, *, practical_domain_label: str = "") -> str:
     normalized = case_domain.casefold()
+    display_label = _display_domain_label(case_domain, practical_domain_label)
     if normalized == "divorcio":
         return "Estrategia inicial de divorcio"
-    if case_domain:
-        return f"Encuadre estrategico de {_humanize_case_domain(case_domain)}"
+    if display_label:
+        return f"Encuadre estrategico de {display_label.lower()}"
     return "Encuadre estrategico inicial"
 
 
@@ -1703,7 +1769,12 @@ def apply_output_mode_progression(
 
     if user_mode:
         user_mode["mode"] = selected_mode
-        user_mode["title"] = _progression_user_title(case_domain, selected_mode)
+        practical_domain_label = _clean_text(user_mode.get("practical_domain_label")) or _clean_text(professional_mode.get("practical_domain_label"))
+        user_mode["title"] = _progression_user_title(
+            case_domain,
+            selected_mode,
+            practical_domain_label=practical_domain_label,
+        )
         user_summary = _clean_text(progression.get("user_summary"))
         if user_summary:
             user_mode["summary"] = user_summary
@@ -1717,7 +1788,12 @@ def apply_output_mode_progression(
 
     if professional_mode:
         professional_mode["mode"] = selected_mode
-        professional_mode["title"] = _progression_professional_title(case_domain, selected_mode)
+        practical_domain_label = _clean_text(professional_mode.get("practical_domain_label")) or _clean_text(user_mode.get("practical_domain_label"))
+        professional_mode["title"] = _progression_professional_title(
+            case_domain,
+            selected_mode,
+            practical_domain_label=practical_domain_label,
+        )
         professional_summary = _clean_text(progression.get("professional_summary"))
         if professional_summary:
             professional_mode["summary"] = professional_summary
@@ -1730,36 +1806,38 @@ def apply_output_mode_progression(
     return payload
 
 
-def _progression_user_title(case_domain: str, selected_mode: str) -> str:
+def _progression_user_title(case_domain: str, selected_mode: str, *, practical_domain_label: str = "") -> str:
+    display_label = _display_domain_label(case_domain, practical_domain_label)
     if selected_mode == "ejecucion":
         if case_domain.casefold() == "divorcio":
             return "Que hacer ahora en tu divorcio"
-        if case_domain:
-            return f"Que hacer ahora en {_humanize_case_domain(case_domain)}"
+        if display_label:
+            return f"Que hacer ahora en {display_label.lower()}"
         return "Que hacer ahora"
     if selected_mode == "estrategia":
-        if case_domain:
-            return f"Estrategia para {_humanize_case_domain(case_domain)}"
+        if display_label:
+            return f"Estrategia para {display_label.lower()}"
         return "Estrategia del caso"
     if selected_mode == "estructuracion":
-        if case_domain:
-            return f"Estructuracion del caso de {_humanize_case_domain(case_domain)}"
+        if display_label:
+            return f"Estructuracion del caso de {display_label.lower()}"
         return "Estructuracion del caso"
-    return _user_title(case_domain, "")
+    return _user_title(case_domain, "", practical_domain_label=practical_domain_label)
 
 
-def _progression_professional_title(case_domain: str, selected_mode: str) -> str:
+def _progression_professional_title(case_domain: str, selected_mode: str, *, practical_domain_label: str = "") -> str:
+    display_label = _display_domain_label(case_domain, practical_domain_label)
     if selected_mode == "ejecucion":
         return "Salida ejecutiva priorizada"
     if selected_mode == "estrategia":
-        if case_domain:
-            return f"Estrategia aplicada en {_humanize_case_domain(case_domain)}"
+        if display_label:
+            return f"Estrategia aplicada en {display_label.lower()}"
         return "Estrategia aplicada"
     if selected_mode == "estructuracion":
-        if case_domain:
-            return f"Estructuracion estrategica de {_humanize_case_domain(case_domain)}"
+        if display_label:
+            return f"Estructuracion estrategica de {display_label.lower()}"
         return "Estructuracion estrategica"
-    return _professional_title(case_domain)
+    return _professional_title(case_domain, practical_domain_label=practical_domain_label)
 
 
 def _to_user_list(items: Any) -> list[str]:

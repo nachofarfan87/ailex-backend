@@ -159,3 +159,26 @@ def test_respuesta_sin_hijos_consolida_slot_y_no_lo_deja_ambiguo():
     assert context["known_facts"]["hay_hijos"] is False
     assert context["answer_status"] == "precise"
     assert context["response_strategy"] == "advance"
+
+
+def test_respuesta_de_domicilio_simple_consolida_jurisdiccion_y_domicilio():
+    prepared = prepare_legal_query_turn(
+        query="Jujuy",
+        facts={},
+        metadata={
+            "clarification_context": {
+                "base_query": "Quiero divorciarme",
+                "case_domain": "divorcio",
+                "last_question": "En que ciudad o domicilio principal se desarrolla el caso?",
+                "asked_questions": ["En que ciudad o domicilio principal se desarrolla el caso?"],
+                "known_facts": {},
+            }
+        },
+    )
+
+    context = prepared.metadata["clarification_context"]
+
+    assert context["known_facts"]["domicilio_relevante"] == "Jujuy"
+    assert context["known_facts"]["jurisdiccion_relevante"] == "Jujuy"
+    assert context["answer_status"] == "precise"
+    assert context["response_strategy"] == "advance"

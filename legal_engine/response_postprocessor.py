@@ -264,6 +264,15 @@ class ResponsePostprocessor:
         y lo antepone al texto de respuesta (antes de los pasos prácticos).
         Si falla o el resultado está vacío, devuelve response_text sin modificar.
         """
+        core_legal_response = dict(api_payload.get("core_legal_response") or {})
+        if (
+            str(core_legal_response.get("direct_answer") or "").strip()
+            and list(core_legal_response.get("action_steps") or [])
+        ):
+            return response_text
+        if self._has_actionable_user_output(api_payload):
+            return response_text
+
         try:
             case_profile = pipeline_payload.get("case_profile") or {}
             procedural_case_state = pipeline_payload.get("procedural_case_state") or {}
@@ -623,6 +632,8 @@ class ResponsePostprocessor:
             and list(core_legal_response.get("action_steps") or [])
         ):
             return response_text
+        if self._has_actionable_user_output(api_payload):
+            return response_text
 
         if not isinstance(conversation_state, dict) or not conversation_state:
             return response_text
@@ -663,6 +674,15 @@ class ResponsePostprocessor:
         response_text: str,
         api_payload: dict[str, Any],
     ) -> str:
+        core_legal_response = dict(api_payload.get("core_legal_response") or {})
+        if (
+            str(core_legal_response.get("direct_answer") or "").strip()
+            and list(core_legal_response.get("action_steps") or [])
+        ):
+            return response_text
+        if self._has_actionable_user_output(api_payload):
+            return response_text
+
         narrative = dict(api_payload.get("case_progress_narrative") or {})
         if not narrative or not narrative.get("applies"):
             return response_text
@@ -2179,6 +2199,11 @@ class ResponsePostprocessor:
         if core_response_text:
             return core_response_text
 
+        user_output = dict(dict(payload.get("output_modes") or {}).get("user") or {})
+        user_output_text = self._render_user_output_mode(user_output)
+        if user_output_text:
+            return user_output_text
+
         conversational = payload.get("conversational") or {}
         if conversational.get("should_ask_first"):
             guided_response = str(conversational.get("guided_response") or "").strip()
@@ -2198,6 +2223,40 @@ class ResponsePostprocessor:
 
         parts = [part for part in (reactive_transition, short_answer, applied_analysis, strategic_narrative) if part]
         return "\n\n".join(self._dedupe_lines(parts))
+
+    def _render_user_output_mode(self, user_output: dict[str, Any]) -> str:
+        if not isinstance(user_output, dict) or not user_output:
+            return ""
+        summary = str(user_output.get("summary") or "").strip()
+        next_steps = [str(item).strip() for item in list(user_output.get("next_steps") or []) if str(item).strip()]
+        required_documents = [str(item).strip() for item in list(user_output.get("required_documents") or []) if str(item).strip()]
+        local_practice_notes = [str(item).strip() for item in list(user_output.get("local_practice_notes") or []) if str(item).strip()]
+        optional_clarification = str(user_output.get("optional_clarification") or "").strip()
+
+        if not summary and not next_steps:
+            return ""
+
+        sections: list[str] = []
+        if summary:
+            sections.append(summary)
+        if next_steps:
+            sections.append("Que podes hacer ahora:\n" + "\n".join(f"- {item}" for item in next_steps[:3]))
+        if required_documents:
+            sections.append("Que conviene reunir:\n" + "\n".join(f"- {item}" for item in required_documents[:4]))
+        if local_practice_notes:
+            sections.append("Practica local orientativa:\n" + "\n".join(f"- {item}" for item in local_practice_notes[:3]))
+        if optional_clarification:
+            sections.append(f"Si queres afinar mejor la orientacion: {optional_clarification}")
+        return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    def _has_actionable_user_output(self, api_payload: dict[str, Any]) -> bool:
+        if self._get_output_mode(api_payload) != "orientacion_inicial":
+            return False
+        user_output = dict(dict(api_payload.get("output_modes") or {}).get("user") or {})
+        return bool(
+            str(user_output.get("summary") or "").strip()
+            and list(user_output.get("next_steps") or [])
+        )
 
     def _render_core_legal_response(self, core: dict[str, Any]) -> str:
         if not core:
