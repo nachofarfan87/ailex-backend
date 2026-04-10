@@ -712,6 +712,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
     reasoning = _as_dict(response.get("reasoning"))
     procedural_strategy = _as_dict(response.get("procedural_strategy"))
     case_domain = _clean_text(response.get("case_domain"))
+    jurisdiction = _clean_text(response.get("jurisdiction"))
     metadata = _as_dict(response.get("metadata"))
     clarification_context = _as_dict(metadata.get("clarification_context"))
     conversation_memory = build_conversation_memory(response)
@@ -736,11 +737,13 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         _dedupe_strs(_as_str_list(case_strategy.get("critical_missing_information"))),
         known_facts=known_facts,
         case_domain=case_domain,
+        jurisdiction=jurisdiction,
     )
     ordinary_missing = _filter_unresolved_items(
         _dedupe_strs(_as_str_list(case_strategy.get("ordinary_missing_information"))),
         known_facts=known_facts,
         case_domain=case_domain,
+        jurisdiction=jurisdiction,
     )
     procedural_missing = _dedupe_strs(
         _as_str_list(procedural_strategy.get("missing_information") or procedural_strategy.get("missing_info"))
@@ -749,6 +752,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         procedural_missing,
         known_facts=known_facts,
         case_domain=case_domain,
+        jurisdiction=jurisdiction,
     )
     missing_facts = _dedupe_strs([*critical_missing, *ordinary_missing, *procedural_missing])[:3]
     recommended = _as_str_list(case_strategy.get("recommended_actions"))
@@ -757,6 +761,7 @@ def _build_conversational(response: dict[str, Any]) -> dict[str, Any]:
         _extract_question_candidates(response),
         known_facts=known_facts,
         case_domain=case_domain,
+        jurisdiction=jurisdiction,
     )
     selected_question = _select_primary_question(response, critical_missing, ordinary_missing, question_candidates)
     if _question_is_stale_after_clarification(
@@ -1410,6 +1415,7 @@ def _filter_question_candidates(
     *,
     known_facts: dict[str, Any],
     case_domain: str,
+    jurisdiction: str = "",
 ) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for candidate in candidates:
@@ -1422,7 +1428,7 @@ def _filter_question_candidates(
         )
         if inferred_field and _has_meaningful_fact(known_facts, inferred_field):
             continue
-        if _item_is_resolved(question, known_facts=known_facts, case_domain=case_domain):
+        if _item_is_resolved(question, known_facts=known_facts, case_domain=case_domain, jurisdiction=jurisdiction):
             continue
         result.append(candidate)
     return result
@@ -1433,11 +1439,12 @@ def _filter_unresolved_items(
     *,
     known_facts: dict[str, Any],
     case_domain: str,
+    jurisdiction: str = "",
 ) -> list[str]:
     return [
         item
         for item in items
-        if not _item_is_resolved(item, known_facts=known_facts, case_domain=case_domain)
+        if not _item_is_resolved(item, known_facts=known_facts, case_domain=case_domain, jurisdiction=jurisdiction)
     ]
 
 
@@ -1446,9 +1453,16 @@ def _item_is_resolved(
     *,
     known_facts: dict[str, Any],
     case_domain: str,
+    jurisdiction: str = "",
 ) -> bool:
     normalized = _normalize_text(text)
-    if not normalized or not known_facts:
+    if not normalized:
+        return False
+
+    if any(term in normalized for term in ("domicilio", "ciudad", "jurisdiccion", "jurisdicciÃ³n", "juzgado", "competencia")) and _normalize_text(jurisdiction) == "jujuy":
+        return True
+
+    if not known_facts:
         return False
 
     if any(term in normalized for term in ("unilateral", "conjunto", "acuerdo")):

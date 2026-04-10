@@ -249,7 +249,8 @@ def test_divorce_without_details_still_returns_minimum_useful_documents_and_step
     assert any("dni" in item.lower() for item in result["required_documents"])
     assert any("matrimonio" in item.lower() or "libreta" in item.lower() for item in result["required_documents"])
     assert any("presentacion inicial" in item.lower() or "propuesta reguladora" in item.lower() for item in result["action_steps"])
-    assert result["optional_clarification"] is not None
+    assert "ciudad" not in (result["optional_clarification"] or "").lower()
+    assert "domicilio" not in (result["optional_clarification"] or "").lower()
 
 
 def test_cuidado_personal_returns_useful_base_even_with_limited_information():

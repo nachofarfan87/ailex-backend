@@ -135,6 +135,7 @@ def build_core_legal_response(response: dict[str, Any] | None) -> dict[str, Any]
     optional_clarification = _build_optional_clarification(
         payload=payload,
         case_domain=practical_domain,
+        jurisdiction=jurisdiction,
         context=context,
     )
 
@@ -767,6 +768,7 @@ def _build_optional_clarification(
     *,
     payload: dict[str, Any],
     case_domain: str,
+    jurisdiction: str,
     context: dict[str, Any],
 ) -> str | None:
     conversational = _as_dict(payload.get("conversational"))
@@ -790,6 +792,8 @@ def _build_optional_clarification(
         return "Con quien convive hoy el nino o la nina y que cambio concreto queres pedir?"
     if case_domain in {"violencia", "violencia_familiar"}:
         return "Hay una urgencia actual o una medida de proteccion que necesites pedir de inmediato?"
+    if _normalize_text(jurisdiction) == "jujuy":
+        return None
     if not context["domicile_known"]:
         return "En que ciudad o domicilio principal se desarrolla el problema?"
     return None

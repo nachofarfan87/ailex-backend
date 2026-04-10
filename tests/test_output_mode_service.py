@@ -1541,6 +1541,33 @@ def test_equivalent_question_does_not_reopen_same_slot_after_precise_answer():
     assert "domicilio" not in (result["conversational"]["question"] or "").lower()
 
 
+def test_local_jujuy_beta_does_not_prioritize_domicile_question_from_start():
+    payload = _refined_response()
+    payload["case_domain"] = "divorcio"
+    payload["jurisdiction"] = "jujuy"
+    payload["query"] = "Quiero divorciarme"
+    payload["question_engine_result"] = {
+        "questions": [
+            {
+                "question": "En que ciudad o domicilio principal se desarrolla el caso?",
+                "purpose": "Precisar competencia judicial.",
+                "priority": "alta",
+                "category": "competencia",
+            }
+        ]
+    }
+    payload["case_strategy"]["critical_missing_information"] = [
+        "Precisar competencia judicial y domicilio relevante.",
+    ]
+
+    result = output_mode_service.build_dual_output(payload)
+
+    assert "ciudad" not in (result["conversational"]["question"] or "").lower()
+    assert "domicilio" not in (result["conversational"]["question"] or "").lower()
+    assert "ciudad" not in " ".join(result["conversational"]["missing_facts"]).lower()
+    assert "domicilio" not in " ".join(result["conversational"]["missing_facts"]).lower()
+
+
 def test_question_first_with_core_keeps_user_title_and_shows_action_before_clarification():
     payload = _refined_response()
     payload["case_domain"] = "divorcio"
